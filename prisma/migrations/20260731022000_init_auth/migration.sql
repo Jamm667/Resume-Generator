@@ -1,5 +1,8 @@
--- CreateSchema
-CREATE SCHEMA IF NOT EXISTS "public";
+-- Prisma emits `CREATE SCHEMA IF NOT EXISTS "public"` here when diffing from an
+-- empty state. It is removed deliberately: every Postgres database already has
+-- a `public` schema, so the statement is a no-op, but it requires CREATE on the
+-- database — a privilege a locked-down application role should not need. This
+-- migration must stay runnable by a least-privilege user.
 
 -- CreateTable
 CREATE TABLE "User" (
