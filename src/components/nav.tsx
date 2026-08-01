@@ -3,14 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-/**
- * Applications joins this list in RE-7, when the route exists. Linking to it
- * now would be a guaranteed 404.
- */
 const LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/upload", label: "Upload" },
   { href: "/bank", label: "Bank" },
+  { href: "/applications", label: "Applications" },
   { href: "/profile", label: "Profile" },
 ];
 
