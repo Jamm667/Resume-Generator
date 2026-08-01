@@ -263,6 +263,127 @@ describe.skipIf(!hasDatabase)("bank route handlers", () => {
     expect(await prisma.bullet.count({ where: { id: original.id } })).toBe(1);
   });
 
+  it("reports the markers cleared when the referenced bullet is deleted", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+
+    // The cross-experience case: the flagged bullet lives somewhere else, which
+    // is what RE-4's cross-document dedupe actually produces.
+    const original = await seedExperience(user.id);
+    const other = await seedExperience(user.id);
+    const referenced = original.bullets[0];
+    const flagged = other.bullets[0];
+
+    await prisma.bullet.update({
+      where: { id: flagged.id },
+      data: { duplicateOfBulletId: referenced.id },
+    });
+
+    const response = await deleteBullet(
+      new Request("http://test", { method: "DELETE" }),
+      context(referenced.id),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.clearedDuplicateIds).toEqual([flagged.id]);
+
+    // The database really did null it — the response is telling the truth.
+    const refreshed = await prisma.bullet.findUniqueOrThrow({
+      where: { id: flagged.id },
+    });
+    expect(refreshed.duplicateOfBulletId).toBeNull();
+  });
+
+  it("reports markers cleared when a whole experience is deleted", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+
+    const original = await seedExperience(user.id);
+    const other = await seedExperience(user.id);
+
+    // Two bullets elsewhere, each flagged against a bullet of the doomed one.
+    await prisma.bullet.update({
+      where: { id: other.bullets[0].id },
+      data: { duplicateOfBulletId: original.bullets[0].id },
+    });
+    await prisma.bullet.update({
+      where: { id: other.bullets[1].id },
+      data: { duplicateOfBulletId: original.bullets[1].id },
+    });
+
+    const response = await deleteExperience(
+      new Request("http://test", { method: "DELETE" }),
+      context(original.id),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(new Set(body.clearedDuplicateIds)).toEqual(
+      new Set([other.bullets[0].id, other.bullets[1].id]),
+    );
+
+    const survivors = await prisma.bullet.findMany({
+      where: { experienceId: other.id },
+    });
+    expect(survivors.every((b) => b.duplicateOfBulletId === null)).toBe(true);
+  });
+
+  it("does not report bullets that are being deleted alongside the reference", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+
+    // Both bullets are in the experience being deleted, so nothing survives to
+    // carry a stale marker.
+    const experience = await seedExperience(user.id);
+    await prisma.bullet.update({
+      where: { id: experience.bullets[1].id },
+      data: { duplicateOfBulletId: experience.bullets[0].id },
+    });
+
+    const response = await deleteExperience(
+      new Request("http://test", { method: "DELETE" }),
+      context(experience.id),
+    );
+    const body = await response.json();
+
+    expect(body.clearedDuplicateIds).toEqual([]);
+  });
+
+  it("reports markers cleared when a duplicate is resolved by deleting it", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+
+    // A chain: C flagged against B, B flagged against A. Deleting B from the
+    // comparison dialog must clear C's marker too.
+    const first = await seedExperience(user.id);
+    const second = await seedExperience(user.id);
+    const a = first.bullets[0];
+    const b = second.bullets[0];
+    const c = second.bullets[1];
+
+    await prisma.bullet.update({
+      where: { id: b.id },
+      data: { duplicateOfBulletId: a.id },
+    });
+    await prisma.bullet.update({
+      where: { id: c.id },
+      data: { duplicateOfBulletId: b.id },
+    });
+
+    const response = await resolveDuplicate(
+      post("http://test", { action: "delete" }),
+      context(b.id),
+    );
+    const body = await response.json();
+
+    expect(body.clearedDuplicateIds).toEqual([c.id]);
+    const refreshedC = await prisma.bullet.findUniqueOrThrow({
+      where: { id: c.id },
+    });
+    expect(refreshedC.duplicateOfBulletId).toBeNull();
+  });
+
   it("returns 404 for every mutation against another user's rows", async () => {
     const owner = await makeUser();
     const stranger = await makeUser();

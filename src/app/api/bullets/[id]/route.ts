@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { findOwnedBullet } from "@/lib/bank/ownership";
+import {
+  findDependentDuplicateIds,
+  findOwnedBullet,
+} from "@/lib/bank/ownership";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/require-user";
 
@@ -55,7 +58,14 @@ export async function DELETE(
     return NextResponse.json({ error: "Bullet not found." }, { status: 404 });
   }
 
+  // Read before deleting: afterwards the relation is already nulled.
+  const clearedDuplicateIds = await findDependentDuplicateIds(user.id, [owned.id]);
+
   await prisma.bullet.delete({ where: { id: owned.id } });
 
-  return NextResponse.json({ id: owned.id, deleted: true });
+  return NextResponse.json({
+    id: owned.id,
+    deleted: true,
+    clearedDuplicateIds,
+  });
 }

@@ -21,3 +21,32 @@ export async function findOwnedBullet(userId: string, id: string) {
     select: { id: true, experienceId: true, duplicateOfBulletId: true },
   });
 }
+
+/**
+ * Bullets flagged as duplicates of the ones about to be deleted.
+ *
+ * The schema nulls `duplicateOfBulletId` for these automatically
+ * (`onDelete: SetNull`), but the client cannot know which rows were touched —
+ * they are frequently in a different experience, since cross-document dedupe
+ * is exactly what produces them. Returning the ids lets the caller clear those
+ * markers too, instead of leaving one pointing at a row that no longer exists.
+ *
+ * Bullets that are themselves being deleted are excluded; they are going away.
+ */
+export async function findDependentDuplicateIds(
+  userId: string,
+  deletedBulletIds: string[],
+): Promise<string[]> {
+  if (deletedBulletIds.length === 0) return [];
+
+  const dependents = await prisma.bullet.findMany({
+    where: {
+      userId,
+      duplicateOfBulletId: { in: deletedBulletIds },
+      id: { notIn: deletedBulletIds },
+    },
+    select: { id: true },
+  });
+
+  return dependents.map((bullet) => bullet.id);
+}

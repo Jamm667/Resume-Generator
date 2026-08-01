@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { findOwnedBullet } from "@/lib/bank/ownership";
+import {
+  findDependentDuplicateIds,
+  findOwnedBullet,
+} from "@/lib/bank/ownership";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/require-user";
 
@@ -38,8 +41,16 @@ export async function POST(
   }
 
   if (parsed.data.action === "delete") {
+    // This bullet may itself be the reference for others; clear those markers.
+    const clearedDuplicateIds = await findDependentDuplicateIds(user.id, [
+      owned.id,
+    ]);
     await prisma.bullet.delete({ where: { id: owned.id } });
-    return NextResponse.json({ id: owned.id, deleted: true });
+    return NextResponse.json({
+      id: owned.id,
+      deleted: true,
+      clearedDuplicateIds,
+    });
   }
 
   // Keep both: drop the flag, leave both rows exactly where they are.

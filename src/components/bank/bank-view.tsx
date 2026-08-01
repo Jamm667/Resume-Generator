@@ -74,6 +74,33 @@ export function BankView({ initialBank }: { initialBank: Bank }) {
     );
   }
 
+  /**
+   * Drop the duplicate marker from bullets whose reference was just deleted.
+   *
+   * The database nulls these itself, but they are usually in a *different*
+   * experience than the row that was removed — cross-document dedupe is what
+   * creates them. Without this the marker survives on screen and the
+   * comparison dialog would offer to delete a live bullet on the strength of
+   * one that no longer exists.
+   */
+  function clearDuplicateMarkers(bulletIds: string[]) {
+    if (bulletIds.length === 0) return;
+    const cleared = new Set(bulletIds);
+
+    setExperiences((prev) =>
+      prev.map((experience) => ({
+        ...experience,
+        bullets: experience.bullets.map((bullet) =>
+          cleared.has(bullet.id)
+            ? { ...bullet, duplicateOfBulletId: null, duplicateOf: null }
+            : bullet,
+        ),
+      })),
+    );
+  }
+
+  type DeleteResult = { clearedDuplicateIds?: string[] };
+
   const visible = useMemo(() => {
     if (!needsReviewOnly) return experiences;
     // An experience stays visible when it, or any of its bullets, needs review.
@@ -101,14 +128,22 @@ export function BankView({ initialBank }: { initialBank: Bank }) {
     try {
       if (pendingDelete.type === "experience") {
         const { experience } = pendingDelete;
-        await send(`/api/experiences/${experience.id}`, "DELETE");
+        const result = await send<DeleteResult>(
+          `/api/experiences/${experience.id}`,
+          "DELETE",
+        );
         setExperiences((prev) => prev.filter((item) => item.id !== experience.id));
+        clearDuplicateMarkers(result.clearedDuplicateIds ?? []);
       } else {
         const { bullet } = pendingDelete;
-        await send(`/api/bullets/${bullet.id}`, "DELETE");
+        const result = await send<DeleteResult>(
+          `/api/bullets/${bullet.id}`,
+          "DELETE",
+        );
         patchBullets(bullet.experienceId, (bullets) =>
           bullets.filter((item) => item.id !== bullet.id),
         );
+        clearDuplicateMarkers(result.clearedDuplicateIds ?? []);
       }
       setPendingDelete(null);
     } catch (caught) {
@@ -289,12 +324,15 @@ export function BankView({ initialBank }: { initialBank: Bank }) {
             setDuplicate(null);
           }}
           onDelete={async () => {
-            await send(`/api/bullets/${duplicate.id}/dedupe`, "POST", {
-              action: "delete",
-            });
+            const result = await send<DeleteResult>(
+              `/api/bullets/${duplicate.id}/dedupe`,
+              "POST",
+              { action: "delete" },
+            );
             patchBullets(duplicate.experienceId, (bullets) =>
               bullets.filter((item) => item.id !== duplicate.id),
             );
+            clearDuplicateMarkers(result.clearedDuplicateIds ?? []);
             setDuplicate(null);
           }}
         />

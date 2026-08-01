@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { findOwnedExperience } from "@/lib/bank/ownership";
+import {
+  findDependentDuplicateIds,
+  findOwnedExperience,
+} from "@/lib/bank/ownership";
 import { prisma } from "@/lib/db";
 import { getBankExperience } from "@/lib/queries/bank";
 import { requireUser } from "@/lib/require-user";
@@ -96,7 +99,22 @@ export async function DELETE(
     return NextResponse.json({ error: "Experience not found." }, { status: 404 });
   }
 
+  // Every bullet here cascades away, so anything flagged against one of them
+  // loses its reference too — including bullets in other experiences.
+  const doomed = await prisma.bullet.findMany({
+    where: { experienceId: owned.id },
+    select: { id: true },
+  });
+  const clearedDuplicateIds = await findDependentDuplicateIds(
+    user.id,
+    doomed.map((bullet) => bullet.id),
+  );
+
   await prisma.experience.delete({ where: { id: owned.id } });
 
-  return NextResponse.json({ id: owned.id, deleted: true });
+  return NextResponse.json({
+    id: owned.id,
+    deleted: true,
+    clearedDuplicateIds,
+  });
 }
