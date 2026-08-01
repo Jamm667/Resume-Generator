@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import {
   bandOf,
@@ -88,6 +88,14 @@ export function LibraryPane({
   const [isScoring, setIsScoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * The real double-fire guard. `isScoring` is captured per render, so two
+   * clicks landing before React commits the state update would both read it as
+   * false and both send a request — measured, not theorised. A ref updates
+   * synchronously, so the second click sees the first immediately.
+   */
+  const isRunning = useRef(false);
+
   const [hideWeak, setHideWeak] = useState(false);
 
   const isBankEmpty = bullets.length === 0;
@@ -113,9 +121,8 @@ export function LibraryPane({
   const unscored = visible.filter((bullet) => bullet.score === null);
 
   async function findRelevant() {
-    // Guard as well as disable: a double-click can land two calls before React
-    // re-renders the disabled button.
-    if (isScoring) return;
+    if (isRunning.current) return;
+    isRunning.current = true;
 
     setIsScoring(true);
     setError(null);
@@ -137,6 +144,7 @@ export function LibraryPane({
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
+      isRunning.current = false;
       setIsScoring(false);
     }
   }

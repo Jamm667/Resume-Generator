@@ -99,6 +99,16 @@ describe("relevanceResponseSchema", () => {
     expect(generated.$schema).toBeUndefined();
     expect(generated.type).toBe("object");
   });
+
+  it("keeps range constraints out of the schema sent to the API", () => {
+    // The constrained decoder rejects minimum/maximum on an integer with a
+    // 400, so the range is enforced on the response instead of in the schema.
+    const serialized = JSON.stringify(relevanceResponseJsonSchema());
+    expect(serialized).not.toContain("minimum");
+    expect(serialized).not.toContain("maximum");
+    expect(serialized).not.toContain("minLength");
+    expect(serialized).toContain("integer");
+  });
 });
 
 // ---------------------------------------------------------------------------
