@@ -149,6 +149,32 @@ describe("extractDocument", () => {
     }
   });
 
+  it("strips the markdown fence Claude wraps transcriptions in", async () => {
+    // Observed against the live API: the model returns a fenced block even when
+    // the prompt asks for plain text.
+    const body = "Dana Whitfield\nSenior Platform Engineer\n" + "Detail line. ".repeat(20);
+    mockCreate.mockResolvedValue(anthropicText("```\n" + body + "\n```"));
+
+    const outcome = await extractDocument(fixture("image-only.pdf"), PDF_MIME);
+
+    expect(outcome.status).toBe("EXTRACTED");
+    if (outcome.status !== "EXTRACTED") return;
+    expect(outcome.rawText.startsWith("```")).toBe(false);
+    expect(outcome.rawText.endsWith("```")).toBe(false);
+    expect(outcome.rawText).toContain("Dana Whitfield");
+  });
+
+  it("leaves a transcription without a fence untouched", async () => {
+    const body = "Priya Raman\n" + "Detail line. ".repeat(20);
+    mockCreate.mockResolvedValue(anthropicText(body));
+
+    const outcome = await extractDocument(fixture("image-only.pdf"), PDF_MIME);
+
+    expect(outcome.status).toBe("EXTRACTED");
+    if (outcome.status !== "EXTRACTED") return;
+    expect(outcome.rawText).toBe(body.trim());
+  });
+
   it("fails with a retry-able message when Anthropic errors", async () => {
     mockCreate.mockRejectedValue(new Error("529 overloaded_error"));
 
