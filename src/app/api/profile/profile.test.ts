@@ -98,16 +98,43 @@ describe("parseStoredLinks", () => {
     expect(parseStoredLinks({ label: "x" })).toEqual([]);
   });
 
-  it("drops malformed entries instead of throwing", () => {
+  it("drops entries with no usable shape instead of throwing", () => {
     const links = parseStoredLinks([
       { label: "LinkedIn", url: "https://linkedin.com/in/dana" },
-      { label: "Broken", url: "not-a-url" },
       { nope: true },
+      "a bare string",
+      { label: "Missing url" },
+      { label: 42, url: "https://example.com" },
+      null,
     ]);
 
     expect(links).toEqual([
       { label: "LinkedIn", url: "https://linkedin.com/in/dana" },
     ]);
+  });
+
+  it("keeps a scheme-less URL, which is what RE-4 stores from a resume header", () => {
+    // RE-4's schema types both fields as a plain string, so this is real data.
+    // Dropping it here would hide the link and let the next save delete it.
+    const links = parseStoredLinks([
+      { label: "LinkedIn", url: "linkedin.com/in/dana" },
+      { label: "", url: "dana.dev" },
+    ]);
+
+    expect(links).toEqual([
+      { label: "LinkedIn", url: "linkedin.com/in/dana" },
+      { label: "", url: "dana.dev" },
+    ]);
+  });
+
+  it("still refuses to save a scheme-less URL, so the user fixes it deliberately", () => {
+    const result = profileUpdateSchema.safeParse(
+      valid({ links: [{ label: "LinkedIn", url: "linkedin.com/in/dana" }] }),
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(fieldErrors(result.error)["links.0.url"]).toMatch(/full URL/i);
   });
 });
 
@@ -276,6 +303,96 @@ describe.skipIf(!hasDatabase)("profile route", () => {
 
     expect(ownerProfile.fullName).toBe("Owner Name");
     expect(strangerProfile.fullName).toBe("Stranger Name");
+  });
+
+  it("surfaces a resume-parsed link instead of hiding it", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+
+    // Exactly what RE-4 writes from a resume header: no scheme.
+    await prisma.profile.create({
+      data: {
+        userId: user.id,
+        phone: "+1 555 0142",
+        links: [
+          { label: "LinkedIn", url: "linkedin.com/in/dana" },
+          { label: "Portfolio", url: "https://dana.dev" },
+        ],
+      },
+    });
+
+    const response = await GET();
+    const body = await response.json();
+
+    // The form receives both, so the user can see and repair the broken one.
+    expect(body.links).toEqual([
+      { label: "LinkedIn", url: "linkedin.com/in/dana" },
+      { label: "Portfolio", url: "https://dana.dev" },
+    ]);
+  });
+
+  it("refuses the save rather than silently dropping a resume-parsed link", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+
+    await prisma.profile.create({
+      data: {
+        userId: user.id,
+        phone: "+1 555 0142",
+        links: [{ label: "LinkedIn", url: "linkedin.com/in/dana" }],
+      },
+    });
+
+    // The user edits their phone and saves the form as loaded.
+    const response = await PUT(
+      put(
+        valid({
+          phone: "+1 555 9999",
+          links: [{ label: "LinkedIn", url: "linkedin.com/in/dana" }],
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).errors["links.0.url"]).toMatch(/full URL/i);
+
+    // Nothing was written — crucially, the link is still there to be fixed.
+    const stored = await prisma.profile.findUniqueOrThrow({
+      where: { userId: user.id },
+    });
+    expect(parseStoredLinks(stored.links)).toEqual([
+      { label: "LinkedIn", url: "linkedin.com/in/dana" },
+    ]);
+    expect(stored.phone).toBe("+1 555 0142");
+  });
+
+  it("saves once the user has corrected the link", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+
+    await prisma.profile.create({
+      data: {
+        userId: user.id,
+        links: [{ label: "LinkedIn", url: "linkedin.com/in/dana" }],
+      },
+    });
+
+    const response = await PUT(
+      put(
+        valid({
+          links: [{ label: "LinkedIn", url: "https://linkedin.com/in/dana" }],
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+
+    const stored = await prisma.profile.findUniqueOrThrow({
+      where: { userId: user.id },
+    });
+    expect(parseStoredLinks(stored.links)).toEqual([
+      { label: "LinkedIn", url: "https://linkedin.com/in/dana" },
+    ]);
   });
 
   it("normalizes blank text fields to null", async () => {

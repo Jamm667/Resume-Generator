@@ -60,16 +60,36 @@ export function normalizeText(value: string | null | undefined): string | null {
 }
 
 /**
- * Coerce the stored `links` JSON back into a typed array. The column is
- * `Json?`, so anything could be in there — bad shapes are dropped rather than
- * crashing the page that renders them.
+ * Shape only — two strings. Deliberately looser than `profileLinkSchema`.
+ *
+ * RE-4 writes this column through its own schema, where both fields are a
+ * plain `z.string()`. Resume headers routinely spell links without a scheme
+ * ("linkedin.com/in/dana"), so that is genuinely what lands in the database.
+ */
+const storedLinkSchema = z.object({
+  label: z.string(),
+  url: z.string(),
+});
+
+/**
+ * Coerce the stored `links` JSON back into a typed array.
+ *
+ * Reading is permissive on purpose. Applying the save-time rules here would
+ * hide a scheme-less link from the form, and the next save — which writes the
+ * form's array wholesale — would delete it without ever telling the user. A
+ * link the user came here to fix is exactly the link that must survive the
+ * round trip; `profileUpdateSchema` is what stops them at save time, with a
+ * field-level error they can act on.
+ *
+ * Genuinely malformed entries (not an object, missing fields, wrong types) are
+ * still dropped, since there is nothing to render or repair.
  */
 export function parseStoredLinks(value: unknown): ProfileLink[] {
   if (!Array.isArray(value)) return [];
 
   const links: ProfileLink[] = [];
   for (const entry of value) {
-    const parsed = profileLinkSchema.safeParse(entry);
+    const parsed = storedLinkSchema.safeParse(entry);
     if (parsed.success) links.push(parsed.data);
   }
 
