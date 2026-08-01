@@ -2,6 +2,29 @@ import type { Application, DraftItem } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 
+/** Just enough of each application to render the list. */
+export type ApplicationSummary = Pick<
+  Application,
+  "id" | "name" | "companyName" | "roleTitle" | "updatedAt"
+>;
+
+/** The signed-in user's applications, most recently touched first. */
+export async function listApplications(
+  userId: string,
+): Promise<ApplicationSummary[]> {
+  return prisma.application.findMany({
+    where: { userId },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      companyName: true,
+      roleTitle: true,
+      updatedAt: true,
+    },
+  });
+}
+
 /** A top-level draft row with its nested bullet rows, all ordered. */
 export type DraftItemWithChildren = DraftItem & { children: DraftItem[] };
 
