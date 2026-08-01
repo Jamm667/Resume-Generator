@@ -12,10 +12,13 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
     "@auth/prisma-adapter": "^2.10.0",
     "@prisma/client": "^6.16.2",
+    "mammoth": "^1.12.0",
     "next": "^15.5.4",
     "next-auth": "^5.0.0-beta.29",
+    "pdf-parse": "^2.4.5",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
