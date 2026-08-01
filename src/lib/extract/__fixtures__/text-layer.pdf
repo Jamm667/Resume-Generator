@@ -1,0 +1,53 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<<  /Length 774 >>
+stream
+BT
+/F1 11 Tf
+72 720 Td
+14 TL
+(Dana Whitfield) Tj T*
+(Senior Platform Engineer - Toronto, Ontario) Tj T*
+(dana.whitfield@example.com | +1 555 0142) Tj T*
+() Tj T*
+(EXPERIENCE) Tj T*
+(Acme Payments - Senior Engineer - Jan 2022 to Present) Tj T*
+(Cut checkout latency by 40 percent by batching settlement calls.) Tj T*
+(Led migration of twelve services onto a shared authentication layer.) Tj T*
+(Owned the reconciliation pipeline processing 2.4 million events daily.) Tj T*
+() Tj T*
+(Initech - Backend Engineer - 2019 to 2021) Tj T*
+(Built the billing export used by every enterprise customer.) Tj T*
+(Reduced nightly batch runtime from six hours to under forty minutes.) Tj T*
+() Tj T*
+(EDUCATION) Tj T*
+(University of Toronto - BSc Computer Science - 2015 to 2019) Tj T*
+ET
+
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1137
+%%EOF
