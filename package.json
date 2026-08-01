@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "db:seed": "node --env-file=.env --disable-warning=MODULE_TYPELESS_PACKAGE_JSON prisma/seed.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
