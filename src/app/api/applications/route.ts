@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import {
+  defaultApplicationName,
+  MIN_JD_CHARS,
+} from "@/lib/applications/naming";
 import { prisma } from "@/lib/db";
 import { inferCompanyAndRole } from "@/lib/jd/infer-company-role";
 import { requireUser } from "@/lib/require-user";
-
-/** Short enough to be a paste accident rather than a posting. */
-export const MIN_JD_CHARS = 100;
-
-/** Fallback name length when there is no company or role to build one from. */
-const NAME_FALLBACK_CHARS = 60;
 
 const createSchema = z.object({
   jdText: z
@@ -27,26 +25,6 @@ const createSchema = z.object({
 function blankToNull(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
   return trimmed.length === 0 ? null : trimmed;
-}
-
-/**
- * A readable default the user can change. "{company} — {role}" when we have
- * them, otherwise the opening of the JD, which at least says which posting it
- * is.
- */
-export function defaultApplicationName(
-  companyName: string | null,
-  roleTitle: string | null,
-  jdText: string,
-): string {
-  if (companyName && roleTitle) return `${companyName} — ${roleTitle}`;
-  if (companyName) return companyName;
-  if (roleTitle) return roleTitle;
-
-  const opening = jdText.trim().replace(/\s+/g, " ");
-  return opening.length <= NAME_FALLBACK_CHARS
-    ? opening
-    : `${opening.slice(0, NAME_FALLBACK_CHARS).trimEnd()}…`;
 }
 
 export async function POST(request: Request): Promise<NextResponse> {

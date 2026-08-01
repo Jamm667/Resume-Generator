@@ -11,7 +11,9 @@ vi.mock("@/lib/jd/infer-company-role", () => ({
   JD_INFERENCE_CHARS: 4000,
 }));
 
-const { defaultApplicationName } = await import("@/app/api/applications/route");
+// Imported from its own module, not the route: a Next.js route file may only
+// export route handlers, and `next build` fails the route type check otherwise.
+import { defaultApplicationName } from "@/lib/applications/naming";
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 
