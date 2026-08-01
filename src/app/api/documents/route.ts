@@ -8,6 +8,7 @@ import {
   type UploadCandidate,
 } from "@/lib/extract";
 import { requireUser } from "@/lib/require-user";
+import { structureDocument } from "@/lib/structure";
 
 export type UploadedDocument = {
   id: string;
@@ -70,7 +71,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const buffer = Buffer.from(await file.arrayBuffer());
     const outcome = await extractDocument(buffer, candidate.mimeType);
 
-    const updated =
+    let updated =
       outcome.status === "EXTRACTED"
         ? await prisma.sourceDocument.update({
             where: { id: document.id },
@@ -86,11 +87,20 @@ export async function POST(request: Request): Promise<NextResponse> {
             data: { parseStatus: "FAILED", parseError: outcome.parseError },
           });
 
+    // Extraction only produces text; structuring is what puts it in the bank.
+    if (updated.parseStatus === "EXTRACTED") {
+      await structureDocument(updated.id, user.id);
+      updated = await prisma.sourceDocument.findUniqueOrThrow({
+        where: { id: updated.id },
+      });
+    }
+
     documents.push({
       id: updated.id,
       filename: updated.filename,
       parseStatus: updated.parseStatus,
-      extractionMethod: updated.parseStatus === "EXTRACTED" ? updated.extractionMethod : null,
+      extractionMethod:
+        updated.parseStatus === "FAILED" ? null : updated.extractionMethod,
       parseError: updated.parseError,
       characters: updated.rawText?.length ?? 0,
     });

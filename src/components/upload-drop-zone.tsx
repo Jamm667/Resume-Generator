@@ -5,7 +5,12 @@ import { useCallback, useRef, useState } from "react";
 const MAX_FILES = 10;
 const MAX_FILE_MB = 10;
 
-type RowStatus = "PENDING" | "EXTRACTING" | "EXTRACTED" | "FAILED";
+type RowStatus =
+  | "PENDING"
+  | "EXTRACTING"
+  | "EXTRACTED"
+  | "STRUCTURED"
+  | "FAILED";
 
 type Row = {
   key: string;
@@ -23,6 +28,7 @@ const STATUS_LABEL: Record<RowStatus, string> = {
   PENDING: "Pending",
   EXTRACTING: "Extracting",
   EXTRACTED: "Extracted",
+  STRUCTURED: "Added to bank",
   FAILED: "Failed",
 };
 
@@ -30,6 +36,7 @@ const STATUS_STYLE: Record<RowStatus, string> = {
   PENDING: "bg-slate-100 text-slate-600",
   EXTRACTING: "bg-amber-100 text-amber-700",
   EXTRACTED: "bg-emerald-100 text-emerald-700",
+  STRUCTURED: "bg-emerald-100 text-emerald-700",
   FAILED: "bg-red-100 text-red-700",
 };
 
@@ -205,7 +212,7 @@ export function UploadDropZone() {
                 </span>
               </div>
 
-              {row.status === "EXTRACTED" && (
+              {(row.status === "EXTRACTED" || row.status === "STRUCTURED") && (
                 <p className="mt-1 text-xs text-slate-600">
                   {row.characters.toLocaleString()} characters
                   {row.extractionMethod
@@ -222,16 +229,16 @@ export function UploadDropZone() {
                   {row.id && (
                     <PasteFallback
                       documentId={row.id}
-                      onSaved={(characters) =>
+                      onSaved={(saved) =>
                         setRows((prev) =>
                           prev.map((r) =>
                             r.key === row.key
                               ? {
                                   ...r,
-                                  status: "EXTRACTED",
-                                  extractionMethod: "PASTED",
-                                  parseError: null,
-                                  characters,
+                                  status: saved.parseStatus,
+                                  extractionMethod: saved.extractionMethod,
+                                  parseError: saved.parseError,
+                                  characters: saved.characters,
                                 }
                               : r,
                           ),
@@ -249,12 +256,19 @@ export function UploadDropZone() {
   );
 }
 
+type SavedPaste = {
+  parseStatus: RowStatus;
+  extractionMethod: string | null;
+  parseError: string | null;
+  characters: number;
+};
+
 function PasteFallback({
   documentId,
   onSaved,
 }: {
   documentId: string;
-  onSaved: (characters: number) => void;
+  onSaved: (saved: SavedPaste) => void;
 }) {
   const [text, setText] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -277,7 +291,12 @@ function PasteFallback({
         throw new Error(message ?? `Could not save (${response.status}).`);
       }
       const data = await response.json();
-      onSaved(data.characters ?? text.trim().length);
+      onSaved({
+        parseStatus: (data.parseStatus as RowStatus) ?? "STRUCTURED",
+        extractionMethod: data.extractionMethod ?? "PASTED",
+        parseError: data.parseError ?? null,
+        characters: data.characters ?? text.trim().length,
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {

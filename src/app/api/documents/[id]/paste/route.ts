@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/require-user";
+import { structureDocument } from "@/lib/structure";
 
 /**
  * Manual fallback for a document neither extraction path could read.
@@ -32,7 +33,7 @@ export async function POST(
     return NextResponse.json({ error: "Document not found." }, { status: 404 });
   }
 
-  const updated = await prisma.sourceDocument.update({
+  await prisma.sourceDocument.update({
     where: { id: document.id },
     data: {
       rawText: text,
@@ -40,6 +41,14 @@ export async function POST(
       parseStatus: "EXTRACTED",
       parseError: null,
     },
+  });
+
+  // Pasted text is extracted text — it goes through structuring like any other,
+  // or the fallback would dead-end outside the data bank.
+  await structureDocument(document.id, user.id);
+
+  const updated = await prisma.sourceDocument.findUniqueOrThrow({
+    where: { id: document.id },
   });
 
   return NextResponse.json({
