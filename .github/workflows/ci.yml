@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same branch makes the in-flight run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+
+    env:
+      # Placeholders, never connected to. `next build` constructs PrismaClient
+      # and Auth.js at module load, and both throw on a missing variable, so
+      # these have to be present for the build to run at all.
+      DATABASE_URL: "postgresql://ci:ci@localhost:6543/postgres?pgbouncer=true"
+      DIRECT_URL: "postgresql://ci:ci@localhost:5432/postgres"
+      AUTH_SECRET: "ci-placeholder-secret-never-signs-a-real-session"
+      AUTH_GOOGLE_ID: "ci-placeholder"
+      AUTH_GOOGLE_SECRET: "ci-placeholder"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm run test
+        env:
+          # Blank on purpose. The database-backed tests read this to decide
+          # whether to run, and CI provisions no Postgres — they skip rather
+          # than fail. The job-level placeholder above would look real enough
+          # to make them attempt a connection.
+          DATABASE_URL: ""
+
+      - name: Build
+        run: npm run build
