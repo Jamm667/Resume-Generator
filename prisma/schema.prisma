@@ -1,4 +1,5 @@
-// Auth.js v5 tables only. Resume, data bank, and application models land in RE-2.
+// Auth.js v5 tables plus the core data model: profile, source documents, the
+// data bank (experiences and bullets), and applications with their drafts.
 
 generator client {
   provider = "prisma-client-js"
@@ -23,6 +24,12 @@ model User {
 
   accounts Account[]
   sessions Session[]
+
+  profile         Profile?
+  sourceDocuments SourceDocument[]
+  experiences     Experience[]
+  bullets         Bullet[]
+  applications    Application[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -68,4 +75,262 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// Profile
+// ---------------------------------------------------------------------------
+
+/// Contact block that heads a generated resume. One per user; every field is
+/// optional because a profile is built up gradually from uploaded documents.
+model Profile {
+  id String @id @default(cuid())
+
+  // @unique both enforces the 1:1 with User and provides the userId index.
+  userId String @unique
+
+  fullName String?
+  email    String?
+  phone    String?
+  location String?
+  headline String?
+
+  /// Array of `{ label, url }` objects.
+  links Json?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Source documents
+// ---------------------------------------------------------------------------
+
+enum ExtractionMethod {
+  TEXT_LAYER
+  VISION_OCR
+  PASTED
+}
+
+enum ParseStatus {
+  PENDING
+  EXTRACTED
+  STRUCTURED
+  FAILED
+}
+
+/// A resume the user uploaded, kept verbatim. Structured records point back
+/// here so a bullet can always be traced to the document it came from.
+model SourceDocument {
+  id     String @id @default(cuid())
+  userId String
+
+  filename String
+  mimeType String
+
+  /// Null until extraction runs; populated from PENDING onward.
+  rawText String? @db.Text
+
+  extractionMethod ExtractionMethod
+  parseStatus      ParseStatus      @default(PENDING)
+
+  /// Only set when parseStatus is FAILED.
+  parseError String? @db.Text
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  experiences Experience[]
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Data bank
+// ---------------------------------------------------------------------------
+
+enum ExperienceKind {
+  JOB
+  PROJECT
+  EDUCATION
+}
+
+/// One job, project, or degree in the data bank.
+model Experience {
+  id               String  @id @default(cuid())
+  userId           String
+  sourceDocumentId String?
+
+  kind         ExperienceKind
+  title        String
+  organization String
+  location     String?
+
+  /// Free text, preserved exactly as the source resume wrote it ("Jan 2020",
+  /// "Summer 2021"). Storing the original avoids inventing precision the
+  /// source never had.
+  startDate String?
+  endDate   String?
+
+  isCurrent Boolean @default(false)
+  summary   String? @db.Text
+
+  needsReview Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  bullets        Bullet[]
+  draftItems     DraftItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([sourceDocumentId])
+}
+
+/// A single achievement line under an experience.
+model Bullet {
+  id           String @id @default(cuid())
+  userId       String
+  experienceId String
+
+  text String @db.Text
+
+  needsReview Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  /// Set when this bullet is flagged as a near-duplicate of another. Nulled
+  /// rather than cascaded if the original goes away, so the text survives.
+  duplicateOfBulletId String?
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  experience  Experience @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+  duplicateOf Bullet?    @relation("BulletDuplicates", fields: [duplicateOfBulletId], references: [id], onDelete: SetNull)
+  duplicates  Bullet[]   @relation("BulletDuplicates")
+
+  relevanceScores RelevanceScore[]
+  draftItems      DraftItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([experienceId])
+  @@index([duplicateOfBulletId])
+}
+
+// ---------------------------------------------------------------------------
+// Applications
+// ---------------------------------------------------------------------------
+
+/// One job application: the pasted JD plus everything derived from it.
+model Application {
+  id     String @id @default(cuid())
+  userId String
+
+  name        String
+  companyName String?
+  roleTitle   String?
+
+  jdText String @db.Text
+
+  coverLetterText String? @db.Text
+  coverLetterTone String?
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  draftItems      DraftItem[]
+  relevanceScores RelevanceScore[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+enum DraftItemKind {
+  EXPERIENCE
+  BULLET
+}
+
+enum TailorStatus {
+  NONE
+  PROPOSED
+  ACCEPTED
+  REJECTED
+  BLOCKED
+}
+
+/// A row in the Master Draft. EXPERIENCE items are headers; BULLET items nest
+/// under them via parentDraftItemId. Original text is never overwritten —
+/// tailoredText holds the LLM proposal and userText a manual edit.
+model DraftItem {
+  id            String @id @default(cuid())
+  applicationId String
+
+  kind DraftItemKind
+
+  /// Nulled rather than cascaded if the bank entry is deleted; the draft keeps
+  /// its own copy of the text either way.
+  sourceExperienceId String?
+  sourceBulletId     String?
+
+  parentDraftItemId String?
+
+  sortOrder Int @default(0)
+
+  originalText String       @db.Text
+  tailoredText String?      @db.Text
+  userText     String?      @db.Text
+  tailorStatus TailorStatus @default(NONE)
+
+  // Header fields, used only by EXPERIENCE items. headerTailorStatus is
+  // deliberately independent of tailorStatus so an accepted title can sit
+  // alongside a rejected bullet rewrite.
+  originalTitle    String?
+  tailoredTitle    String?
+  userTitle        String?
+  originalDateText String?
+  tailoredDateText String?
+  userDateText     String?
+  organization     String?
+
+  headerTailorStatus TailorStatus @default(NONE)
+
+  application      Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  sourceExperience Experience? @relation(fields: [sourceExperienceId], references: [id], onDelete: SetNull)
+  sourceBullet     Bullet?     @relation(fields: [sourceBulletId], references: [id], onDelete: SetNull)
+  parent           DraftItem?  @relation("DraftItemChildren", fields: [parentDraftItemId], references: [id], onDelete: Cascade)
+  children         DraftItem[] @relation("DraftItemChildren")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([applicationId])
+  @@index([parentDraftItemId])
+  @@index([sourceExperienceId])
+  @@index([sourceBulletId])
+}
+
+/// How well one bullet matches one application's JD. Scores are 0-100;
+/// Prisma cannot express the range as a check constraint.
+model RelevanceScore {
+  id            String @id @default(cuid())
+  applicationId String
+  bulletId      String
+
+  score           Int
+  matchedKeywords String[]
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  bullet      Bullet      @relation(fields: [bulletId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([applicationId, bulletId])
+  @@index([bulletId])
 }
