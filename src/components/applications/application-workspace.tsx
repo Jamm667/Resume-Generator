@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { ConfirmDialog } from "@/components/bank/confirm-dialog";
 
@@ -37,8 +37,11 @@ const PLACEHOLDERS = [
 
 export function ApplicationWorkspace({
   application,
+  children,
 }: {
   application: Workspace;
+  /** Sections rendered under the job description, above the placeholders. */
+  children?: ReactNode;
 }) {
   const router = useRouter();
   const [form, setForm] = useState(application);
@@ -207,6 +210,8 @@ export function ApplicationWorkspace({
           </pre>
         )}
       </section>
+
+      {children}
 
       {PLACEHOLDERS.map((section) => (
         <section

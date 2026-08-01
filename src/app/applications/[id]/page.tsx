@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 
 import { ApplicationWorkspace } from "@/components/applications/application-workspace";
+import { LibraryPane } from "@/components/builder/library-pane";
 import { Nav } from "@/components/nav";
 import { prisma } from "@/lib/db";
+import { getRelevanceLibrary } from "@/lib/queries/relevance";
 import { requireUser } from "@/lib/require-user";
 
 export default async function ApplicationPage({
@@ -22,6 +24,8 @@ export default async function ApplicationPage({
     notFound();
   }
 
+  const library = await getRelevanceLibrary(user.id, application.id);
+
   return (
     <>
       <Nav />
@@ -34,7 +38,9 @@ export default async function ApplicationPage({
             roleTitle: application.roleTitle ?? "",
             jdText: application.jdText,
           }}
-        />
+        >
+          <LibraryPane applicationId={application.id} bullets={library} />
+        </ApplicationWorkspace>
       </main>
     </>
   );
