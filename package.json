@@ -20,7 +20,8 @@
     "next-auth": "^5.0.0-beta.29",
     "pdf-parse": "^2.4.5",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
