@@ -1,0 +1,6 @@
+# Test fixtures are byte-exact. A PDF's xref table stores absolute byte
+# offsets, so any end-of-line conversion on checkout shifts them and breaks
+# parsing. Git guesses "text" for the text-layer PDF because it is mostly
+# ASCII, so the classification has to be stated explicitly.
+*.pdf binary
+*.docx binary
