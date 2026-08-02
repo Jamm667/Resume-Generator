@@ -169,6 +169,78 @@ describe.skipIf(!hasDatabase)("bank route handlers", () => {
     expect(refreshed.needsReview).toBe(true);
   });
 
+  it("approves a bullet without touching its text", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+    const experience = await seedExperience(user.id);
+    const target = experience.bullets[0];
+
+    // The quick approve from the review queue: an explicit flag, no edit.
+    const response = await updateBullet(
+      patch("http://test/api/bullets", { needsReview: false }),
+      context(target.id),
+    );
+
+    expect(response.status).toBe(200);
+
+    const refreshed = await prisma.bullet.findUniqueOrThrow({
+      where: { id: target.id },
+    });
+    expect(refreshed.needsReview).toBe(false);
+    expect(refreshed.text).toBe(target.text);
+  });
+
+  it("approves an experience without touching its fields", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+    const experience = await seedExperience(user.id);
+
+    const response = await updateExperience(
+      patch("http://test/api/experiences", { needsReview: false }),
+      context(experience.id),
+    );
+
+    expect(response.status).toBe(200);
+
+    const refreshed = await prisma.experience.findUniqueOrThrow({
+      where: { id: experience.id },
+    });
+    expect(refreshed.needsReview).toBe(false);
+    expect(refreshed.title).toBe(experience.title);
+    expect(refreshed.organization).toBe(experience.organization);
+  });
+
+  it("leaves needsReview alone when the body asks for nothing", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+    const experience = await seedExperience(user.id);
+
+    await updateExperience(
+      patch("http://test/api/experiences", {}),
+      context(experience.id),
+    );
+    await updateBullet(
+      patch("http://test/api/bullets", {}),
+      context(experience.bullets[0].id),
+    );
+
+    // Still flagged: an empty body is a no-op, not a review.
+    expect(
+      (
+        await prisma.experience.findUniqueOrThrow({
+          where: { id: experience.id },
+        })
+      ).needsReview,
+    ).toBe(true);
+    expect(
+      (
+        await prisma.bullet.findUniqueOrThrow({
+          where: { id: experience.bullets[0].id },
+        })
+      ).needsReview,
+    ).toBe(true);
+  });
+
   it("deletes an experience and cascades its bullets", async () => {
     const user = await makeUser();
     mockRequireUser.mockResolvedValue(user);

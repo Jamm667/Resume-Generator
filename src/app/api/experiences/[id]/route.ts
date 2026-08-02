@@ -23,6 +23,9 @@ const updateSchema = z.object({
   endDate: z.string().nullish(),
   isCurrent: z.boolean().optional(),
   summary: z.string().nullish(),
+  // Confirming an entry without changing it. An empty body is a no-op by
+  // convention, so approving has to say so explicitly.
+  needsReview: z.boolean().optional(),
 });
 
 function blankToNull(value: string | null | undefined): string | null {
@@ -62,9 +65,14 @@ export async function PATCH(
   }
 
   const input = parsed.data;
-  const asksForChange = Object.values(input).some(
+  const { needsReview, ...fields } = input;
+  const editsContent = Object.values(fields).some(
     (value) => value !== undefined,
   );
+
+  // An explicit flag wins; otherwise editing any field counts as reviewing.
+  const reviewed =
+    needsReview !== undefined ? needsReview : editsContent ? false : undefined;
 
   await prisma.experience.update({
     where: { id: owned.id },
@@ -87,8 +95,7 @@ export async function PATCH(
       ...(input.summary !== undefined
         ? { summary: blankToNull(input.summary) }
         : {}),
-      // Editing is reviewing — but an empty body edits nothing.
-      ...(asksForChange ? { needsReview: false } : {}),
+      ...(reviewed !== undefined ? { needsReview: reviewed } : {}),
     },
   });
 
