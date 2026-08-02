@@ -14,6 +14,12 @@ type RowStatus =
 
 type Row = {
   key: string;
+  /**
+   * Position of this file within its own upload batch. Rows are paired to
+   * results by position, never by filename — two files in one upload may share
+   * a name, and name matching loses the second one.
+   */
+  index: number;
   id: string | null;
   filename: string;
   status: RowStatus;
@@ -22,7 +28,16 @@ type Row = {
   characters: number;
 };
 
-type Rejection = { filename: string; reason: string };
+type Rejection = { index: number; filename: string; reason: string };
+
+type UploadResult = {
+  index: number;
+  id: string;
+  parseStatus: RowStatus;
+  extractionMethod: string | null;
+  parseError: string | null;
+  characters: number;
+};
 
 const STATUS_LABEL: Record<RowStatus, string> = {
   PENDING: "Pending",
@@ -63,6 +78,7 @@ export function UploadDropZone() {
     // duration of the request — extraction is synchronous server-side.
     const pending: Row[] = files.map((file, i) => ({
       key: `${batch}-${i}`,
+      index: i,
       id: null,
       filename: file.name,
       status: "PENDING",
@@ -97,27 +113,40 @@ export function UploadDropZone() {
       const data = await response.json();
       setRejections(data.rejected ?? []);
 
-      const rejectedNames = new Set(
-        (data.rejected ?? []).map((r: Rejection) => r.filename),
+      const rejectedIndexes = new Set<number>(
+        (data.rejected ?? []).map((r: Rejection) => r.index),
       );
-      const results = [...(data.documents ?? [])];
+      const byIndex = new Map<number, UploadResult>(
+        (data.documents ?? []).map((d: UploadResult) => [d.index, d]),
+      );
 
       setRows((prev) =>
         prev.flatMap((row) => {
           if (!keys.has(row.key)) return [row];
           // Rejected files never became rows server-side; drop them here and
           // let the inline rejection list explain why.
-          if (rejectedNames.has(row.filename)) return [];
+          if (rejectedIndexes.has(row.index)) return [];
 
-          const match = results.findIndex((d) => d.filename === row.filename);
-          if (match === -1) return [row];
-          const [result] = results.splice(match, 1);
+          const result = byIndex.get(row.index);
+
+          // Neither a result nor a rejection came back for this file. That
+          // should not happen, but leaving the row on "Extracting" forever is
+          // the worst possible answer, so say so instead.
+          if (!result) {
+            return [
+              {
+                ...row,
+                status: "FAILED" as RowStatus,
+                parseError: "The server returned no result for this file.",
+              },
+            ];
+          }
 
           return [
             {
               ...row,
               id: result.id,
-              status: result.parseStatus as RowStatus,
+              status: result.parseStatus,
               extractionMethod: result.extractionMethod,
               parseError: result.parseError,
               characters: result.characters,
@@ -186,7 +215,7 @@ export function UploadDropZone() {
         <ul className="space-y-2">
           {rejections.map((rejection) => (
             <li
-              key={rejection.filename}
+              key={rejection.index}
               className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
             >
               <span className="font-medium">{rejection.filename}</span> —{" "}

@@ -11,6 +11,8 @@ import { requireUser } from "@/lib/require-user";
 import { structureDocument } from "@/lib/structure";
 
 export type UploadedDocument = {
+  /** Position of the file that produced this row in the uploaded batch. */
+  index: number;
   id: string;
   filename: string;
   parseStatus: string;
@@ -48,15 +50,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   }));
 
   const { accepted, rejected } = validateUpload(candidates);
-  const acceptedNames = new Set(accepted.map((c) => c.filename));
   const documents: UploadedDocument[] = [];
 
-  for (const file of files) {
-    if (!acceptedNames.has(file.name)) continue;
-
-    const candidate = accepted.find((c) => c.filename === file.name);
-    if (!candidate) continue;
-    acceptedNames.delete(file.name);
+  // Walk the accepted candidates and take each file by position. Matching on
+  // filename here used to collapse two files sharing a name into one, dropping
+  // the second without a row or a rejection to explain it.
+  for (const candidate of accepted) {
+    const file = files[candidate.index];
 
     const document = await prisma.sourceDocument.create({
       data: {
@@ -96,6 +96,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     documents.push({
+      index: candidate.index,
       id: updated.id,
       filename: updated.filename,
       parseStatus: updated.parseStatus,

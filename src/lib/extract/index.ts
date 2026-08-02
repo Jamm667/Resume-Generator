@@ -20,13 +20,25 @@ export type UploadCandidate = {
   mimeType: string;
 };
 
+/**
+ * An accepted file, carrying the position it arrived in.
+ *
+ * Position rather than filename is what identifies a file from here on: two
+ * files in one upload may legitimately share a name, and matching by name
+ * silently loses the second.
+ */
+export type AcceptedUpload = UploadCandidate & {
+  index: number;
+};
+
 export type RejectedUpload = {
+  index: number;
   filename: string;
   reason: string;
 };
 
 export type ValidationResult = {
-  accepted: UploadCandidate[];
+  accepted: AcceptedUpload[];
   rejected: RejectedUpload[];
 };
 
@@ -56,12 +68,13 @@ function resolveMimeType(candidate: UploadCandidate): string | null {
  * rejected file reaches the database.
  */
 export function validateUpload(candidates: UploadCandidate[]): ValidationResult {
-  const accepted: UploadCandidate[] = [];
+  const accepted: AcceptedUpload[] = [];
   const rejected: RejectedUpload[] = [];
 
   candidates.forEach((candidate, index) => {
     if (index >= MAX_FILES_PER_UPLOAD) {
       rejected.push({
+        index,
         filename: candidate.filename,
         reason: `Too many files — up to ${MAX_FILES_PER_UPLOAD} per upload.`,
       });
@@ -71,6 +84,7 @@ export function validateUpload(candidates: UploadCandidate[]): ValidationResult 
     const mimeType = resolveMimeType(candidate);
     if (!mimeType) {
       rejected.push({
+        index,
         filename: candidate.filename,
         reason: "Unsupported file type — only .pdf and .docx are accepted.",
       });
@@ -80,6 +94,7 @@ export function validateUpload(candidates: UploadCandidate[]): ValidationResult 
     if (candidate.size > MAX_FILE_BYTES) {
       const mb = (candidate.size / 1024 / 1024).toFixed(1);
       rejected.push({
+        index,
         filename: candidate.filename,
         reason: `Too large (${mb} MB) — the limit is 10 MB per file.`,
       });
@@ -87,11 +102,15 @@ export function validateUpload(candidates: UploadCandidate[]): ValidationResult 
     }
 
     if (candidate.size === 0) {
-      rejected.push({ filename: candidate.filename, reason: "File is empty." });
+      rejected.push({
+        index,
+        filename: candidate.filename,
+        reason: "File is empty.",
+      });
       return;
     }
 
-    accepted.push({ ...candidate, mimeType });
+    accepted.push({ ...candidate, mimeType, index });
   });
 
   return { accepted, rejected };
