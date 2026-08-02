@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ApplicationWorkspace } from "@/components/applications/application-workspace";
 import { BuilderShell } from "@/components/builder/builder-shell";
 import { CoverLetterPanel } from "@/components/cover-letter-panel";
+import { ExportPanel } from "@/components/export-panel";
 import { Nav } from "@/components/nav";
 import type { CoverLetterTone } from "@/lib/cover-letter/prompt";
 import { prisma } from "@/lib/db";
@@ -35,6 +36,9 @@ export default async function ApplicationPage({
     getDraft(user.id, application.id),
   ]);
 
+  // An experience item with no bullets is not something worth exporting.
+  const hasDraft = draft.some((experience) => experience.children.length > 0);
+
   return (
     <>
       <Nav />
@@ -60,9 +64,12 @@ export default async function ApplicationPage({
             roleTitle={application.roleTitle ?? ""}
             initialText={application.coverLetterText ?? ""}
             initialTone={application.coverLetterTone as CoverLetterTone | null}
-            hasDraft={draft.some(
-              (experience) => experience.children.length > 0,
-            )}
+            hasDraft={hasDraft}
+          />
+          <ExportPanel
+            applicationId={application.id}
+            hasDraft={hasDraft}
+            hasCoverLetter={Boolean(application.coverLetterText?.trim())}
           />
         </ApplicationWorkspace>
       </main>
