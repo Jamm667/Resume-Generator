@@ -7,6 +7,7 @@ import {
   normalizeText,
   parseStoredLinks,
   profileUpdateSchema,
+  type ProfileLink,
 } from "@/lib/validation/profile";
 
 /**
@@ -28,12 +29,27 @@ export async function GET(): Promise<NextResponse> {
   });
 }
 
+/** Only the fields this request actually asked to change. */
+type ProfileChanges = {
+  fullName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  location?: string | null;
+  headline?: string | null;
+  links?: ProfileLink[];
+};
+
 /**
- * Save the contact block. Everything is replaced wholesale — including the
- * links array, which is how add, edit, remove, and reorder all persist in one
- * write.
+ * Save the contact block, following the write convention in CLAUDE.md: a field
+ * absent from the body is left alone, and one sent as `null` or `""` is
+ * cleared. `links` present replaces the whole array — which is how add, edit,
+ * remove, and reorder all persist in one write — and `[]` clears it.
+ *
+ * The profile form sends every field on every save, so its behavior is
+ * unchanged by the merge; what this buys is that a partial body from anywhere
+ * else no longer wipes the fields it did not mention.
  */
-export async function PUT(request: Request): Promise<NextResponse> {
+export async function PATCH(request: Request): Promise<NextResponse> {
   const user = await requireUser();
 
   const body = await request.json().catch(() => null);
@@ -47,26 +63,21 @@ export async function PUT(request: Request): Promise<NextResponse> {
   }
 
   const input = parsed.data;
+  const changes: ProfileChanges = {};
+
+  // `undefined` is the only value that means "absent"; null and "" both reach
+  // normalizeText and clear the column.
+  if (input.fullName !== undefined) changes.fullName = normalizeText(input.fullName);
+  if (input.email !== undefined) changes.email = normalizeText(input.email);
+  if (input.phone !== undefined) changes.phone = normalizeText(input.phone);
+  if (input.location !== undefined) changes.location = normalizeText(input.location);
+  if (input.headline !== undefined) changes.headline = normalizeText(input.headline);
+  if (input.links !== undefined) changes.links = input.links;
 
   const saved = await prisma.profile.upsert({
     where: { userId: user.id },
-    create: {
-      userId: user.id,
-      fullName: normalizeText(input.fullName),
-      email: normalizeText(input.email),
-      phone: normalizeText(input.phone),
-      location: normalizeText(input.location),
-      headline: normalizeText(input.headline),
-      links: input.links,
-    },
-    update: {
-      fullName: normalizeText(input.fullName),
-      email: normalizeText(input.email),
-      phone: normalizeText(input.phone),
-      location: normalizeText(input.location),
-      headline: normalizeText(input.headline),
-      links: input.links,
-    },
+    create: { userId: user.id, ...changes },
+    update: changes,
   });
 
   return NextResponse.json({

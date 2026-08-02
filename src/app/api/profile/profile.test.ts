@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,9 +14,9 @@ vi.mock("@/lib/require-user", () => ({ requireUser: mockRequireUser }));
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 
-function put(body: unknown): Request {
+function patch(body: unknown): Request {
   return new Request("http://test/api/profile", {
-    method: "PUT",
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -139,6 +141,24 @@ describe("parseStoredLinks", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Handlers exported — source-level, so it runs with or without a database
+// ---------------------------------------------------------------------------
+
+describe("profile route module", () => {
+  // Read as text rather than imported: importing the route constructs a Prisma
+  // client, which the database-less run cannot do.
+  const source = readFileSync(
+    new URL("./route.ts", import.meta.url),
+    "utf8",
+  );
+
+  it("exports PATCH and no longer exports PUT", () => {
+    expect(source).toMatch(/export async function PATCH\(/);
+    expect(source).not.toMatch(/export async function PUT\(/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Route — requires a database
 // ---------------------------------------------------------------------------
 
@@ -146,7 +166,7 @@ describe.skipIf(!hasDatabase)("profile route", () => {
   const userIds: string[] = [];
   let prisma: typeof import("@/lib/db").prisma;
   let GET: typeof import("@/app/api/profile/route").GET;
-  let PUT: typeof import("@/app/api/profile/route").PUT;
+  let PATCH: typeof import("@/app/api/profile/route").PATCH;
 
   async function makeUser() {
     const user = await prisma.user.create({
@@ -159,7 +179,7 @@ describe.skipIf(!hasDatabase)("profile route", () => {
   beforeEach(async () => {
     mockRequireUser.mockReset();
     ({ prisma } = await import("@/lib/db"));
-    ({ GET, PUT } = await import("@/app/api/profile/route"));
+    ({ GET, PATCH } = await import("@/app/api/profile/route"));
   });
 
   afterAll(async () => {
@@ -190,8 +210,8 @@ describe.skipIf(!hasDatabase)("profile route", () => {
     const user = await makeUser();
     mockRequireUser.mockResolvedValue(user);
 
-    const response = await PUT(
-      put(
+    const response = await PATCH(
+      patch(
         valid({
           links: [
             { label: "LinkedIn", url: "https://linkedin.com/in/dana" },
@@ -218,8 +238,8 @@ describe.skipIf(!hasDatabase)("profile route", () => {
     const user = await makeUser();
     mockRequireUser.mockResolvedValue(user);
 
-    await PUT(
-      put(
+    await PATCH(
+      patch(
         valid({
           links: [
             { label: "LinkedIn", url: "https://linkedin.com/in/dana" },
@@ -229,8 +249,8 @@ describe.skipIf(!hasDatabase)("profile route", () => {
       ),
     );
 
-    await PUT(
-      put(
+    await PATCH(
+      patch(
         valid({
           links: [
             { label: "Portfolio", url: "https://dana.dev" },
@@ -253,8 +273,8 @@ describe.skipIf(!hasDatabase)("profile route", () => {
     const user = await makeUser();
     mockRequireUser.mockResolvedValue(user);
 
-    await PUT(put(valid()));
-    await PUT(put(valid({ links: [] })));
+    await PATCH(patch(valid()));
+    await PATCH(patch(valid({ links: [] })));
 
     const stored = await prisma.profile.findUniqueOrThrow({
       where: { userId: user.id },
@@ -266,10 +286,10 @@ describe.skipIf(!hasDatabase)("profile route", () => {
     const user = await makeUser();
     mockRequireUser.mockResolvedValue(user);
 
-    await PUT(put(valid({ phone: "+1 555 0142" })));
+    await PATCH(patch(valid({ phone: "+1 555 0142" })));
 
-    const response = await PUT(
-      put(valid({ email: "not-an-email", phone: "+1 999 CHANGED" })),
+    const response = await PATCH(
+      patch(valid({ email: "not-an-email", phone: "+1 999 CHANGED" })),
     );
     const body = await response.json();
 
@@ -289,10 +309,10 @@ describe.skipIf(!hasDatabase)("profile route", () => {
     const stranger = await makeUser();
 
     mockRequireUser.mockResolvedValue(owner);
-    await PUT(put(valid({ fullName: "Owner Name" })));
+    await PATCH(patch(valid({ fullName: "Owner Name" })));
 
     mockRequireUser.mockResolvedValue(stranger);
-    await PUT(put(valid({ fullName: "Stranger Name" })));
+    await PATCH(patch(valid({ fullName: "Stranger Name" })));
 
     const ownerProfile = await prisma.profile.findUniqueOrThrow({
       where: { userId: owner.id },
@@ -344,8 +364,8 @@ describe.skipIf(!hasDatabase)("profile route", () => {
     });
 
     // The user edits their phone and saves the form as loaded.
-    const response = await PUT(
-      put(
+    const response = await PATCH(
+      patch(
         valid({
           phone: "+1 555 9999",
           links: [{ label: "LinkedIn", url: "linkedin.com/in/dana" }],
@@ -377,8 +397,8 @@ describe.skipIf(!hasDatabase)("profile route", () => {
       },
     });
 
-    const response = await PUT(
-      put(
+    const response = await PATCH(
+      patch(
         valid({
           links: [{ label: "LinkedIn", url: "https://linkedin.com/in/dana" }],
         }),
@@ -399,7 +419,7 @@ describe.skipIf(!hasDatabase)("profile route", () => {
     const user = await makeUser();
     mockRequireUser.mockResolvedValue(user);
 
-    await PUT(put(valid({ phone: "   ", headline: "" })));
+    await PATCH(patch(valid({ phone: "   ", headline: "" })));
 
     const stored = await prisma.profile.findUniqueOrThrow({
       where: { userId: user.id },
@@ -407,4 +427,140 @@ describe.skipIf(!hasDatabase)("profile route", () => {
     expect(stored.phone).toBeNull();
     expect(stored.headline).toBeNull();
   });
+
+  // -------------------------------------------------------------------------
+  // Merge semantics
+  // -------------------------------------------------------------------------
+
+  it("leaves out-of-body fields alone", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+    await PATCH(patch(valid()));
+
+    // Only the phone is mentioned.
+    const response = await PATCH(patch({ phone: "+1 555 0100" }));
+
+    expect(response.status).toBe(200);
+
+    const stored = await prisma.profile.findUniqueOrThrow({
+      where: { userId: user.id },
+    });
+    expect(stored.phone).toBe("+1 555 0100");
+    expect(stored.fullName).toBe("Dana Whitfield");
+    expect(stored.email).toBe("dana@example.com");
+    expect(stored.location).toBe("Toronto, ON");
+    expect(stored.headline).toBe("Senior Platform Engineer");
+  });
+
+  it("clears a field sent as an empty string, and one sent as null", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+    await PATCH(patch(valid()));
+
+    await PATCH(patch({ headline: "", location: null }));
+
+    const stored = await prisma.profile.findUniqueOrThrow({
+      where: { userId: user.id },
+    });
+    expect(stored.headline).toBeNull();
+    expect(stored.location).toBeNull();
+    // Untouched by the same request.
+    expect(stored.fullName).toBe("Dana Whitfield");
+  });
+
+  it("leaves links alone when the body does not mention them", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+    await PATCH(patch(valid()));
+
+    await PATCH(patch({ fullName: "Dana W." }));
+
+    const stored = await prisma.profile.findUniqueOrThrow({
+      where: { userId: user.id },
+    });
+    expect(stored.fullName).toBe("Dana W.");
+    expect(parseStoredLinks(stored.links)).toEqual([
+      { label: "LinkedIn", url: "https://linkedin.com/in/dana" },
+    ]);
+  });
+
+  it("replaces the whole links array when it is present", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+    await PATCH(patch(valid()));
+
+    await PATCH(
+      patch({ links: [{ label: "Portfolio", url: "https://dana.dev" }] }),
+    );
+
+    const stored = await prisma.profile.findUniqueOrThrow({
+      where: { userId: user.id },
+    });
+    expect(parseStoredLinks(stored.links)).toEqual([
+      { label: "Portfolio", url: "https://dana.dev" },
+    ]);
+  });
+
+  it("clears links when an empty array is sent", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+    await PATCH(patch(valid()));
+
+    await PATCH(patch({ links: [] }));
+
+    const stored = await prisma.profile.findUniqueOrThrow({
+      where: { userId: user.id },
+    });
+    expect(parseStoredLinks(stored.links)).toEqual([]);
+  });
+
+  it("treats an empty body as a no-op rather than a wipe", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+    await PATCH(patch(valid()));
+
+    const response = await PATCH(patch({}));
+
+    expect(response.status).toBe(200);
+
+    const stored = await prisma.profile.findUniqueOrThrow({
+      where: { userId: user.id },
+    });
+    expect(stored.fullName).toBe("Dana Whitfield");
+    expect(stored.email).toBe("dana@example.com");
+    expect(parseStoredLinks(stored.links)).toHaveLength(1);
+  });
+
+  it("creates the profile from a partial body when there is none yet", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+
+    expect(await prisma.profile.count({ where: { userId: user.id } })).toBe(0);
+
+    const response = await PATCH(patch({ fullName: "Dana Whitfield" }));
+
+    expect(response.status).toBe(200);
+
+    const stored = await prisma.profile.findUniqueOrThrow({
+      where: { userId: user.id },
+    });
+    expect(stored.fullName).toBe("Dana Whitfield");
+    expect(stored.headline).toBeNull();
+  });
+
+  it("still rejects an invalid field in a partial body, writing nothing", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+    await PATCH(patch(valid()));
+
+    const response = await PATCH(patch({ email: "not-an-email" }));
+
+    expect(response.status).toBe(400);
+
+    const stored = await prisma.profile.findUniqueOrThrow({
+      where: { userId: user.id },
+    });
+    expect(stored.email).toBe("dana@example.com");
+  });
+
 });

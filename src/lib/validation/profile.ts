@@ -20,6 +20,11 @@ function optionalText(max = 200) {
     .nullish();
 }
 
+/**
+ * A PATCH body for the profile. Every field is optional, and that is load
+ * bearing: absent means "leave this alone", while `null` or `""` means "clear
+ * it". See the write convention in CLAUDE.md.
+ */
 export const profileUpdateSchema = z.object({
   fullName: optionalText(),
   // Empty clears the field; anything else has to be a real address.
@@ -29,7 +34,11 @@ export const profileUpdateSchema = z.object({
   phone: optionalText(50),
   location: optionalText(),
   headline: optionalText(300),
-  links: z.array(profileLinkSchema).max(MAX_LINKS, `At most ${MAX_LINKS} links.`),
+  // Present replaces the whole array, `[]` clears it, absent leaves it alone.
+  links: z
+    .array(profileLinkSchema)
+    .max(MAX_LINKS, `At most ${MAX_LINKS} links.`)
+    .optional(),
 });
 
 export type ProfileUpdate = z.infer<typeof profileUpdateSchema>;
