@@ -28,6 +28,11 @@ async function findOwned(userId: string, id: string) {
   });
 }
 
+/**
+ * Rename an application or edit its company and role. Follows the write
+ * convention in CLAUDE.md: a field absent from the body is left alone, one sent
+ * as `null` or `""` is cleared.
+ */
 export async function PATCH(
   request: Request,
   { params }: Context,

@@ -130,6 +130,45 @@ describe.skipIf(!hasDatabase)("bank route handlers", () => {
     expect(refreshed.needsReview).toBe(false);
   });
 
+  it("leaves an experience alone when the body asks for no change", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+    const experience = await seedExperience(user.id);
+
+    // An empty body is a valid no-op, so it has not reviewed anything either.
+    const response = await updateExperience(
+      patch("http://test/api/experiences", {}),
+      context(experience.id),
+    );
+
+    expect(response.status).toBe(200);
+
+    const refreshed = await prisma.experience.findUniqueOrThrow({
+      where: { id: experience.id },
+    });
+    expect(refreshed.title).toBe(experience.title);
+    expect(refreshed.needsReview).toBe(true);
+  });
+
+  it("leaves a bullet alone when the body asks for no change", async () => {
+    const user = await makeUser();
+    mockRequireUser.mockResolvedValue(user);
+    const experience = await seedExperience(user.id);
+
+    const response = await updateBullet(
+      patch("http://test/api/bullets", {}),
+      context(experience.bullets[0].id),
+    );
+
+    expect(response.status).toBe(200);
+
+    const refreshed = await prisma.bullet.findUniqueOrThrow({
+      where: { id: experience.bullets[0].id },
+    });
+    expect(refreshed.text).toBe(experience.bullets[0].text);
+    expect(refreshed.needsReview).toBe(true);
+  });
+
   it("deletes an experience and cascades its bullets", async () => {
     const user = await makeUser();
     mockRequireUser.mockResolvedValue(user);

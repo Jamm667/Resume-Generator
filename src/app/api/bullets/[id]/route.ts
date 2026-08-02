@@ -9,12 +9,20 @@ import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/require-user";
 
 const updateSchema = z.object({
-  text: z.string().trim().min(1, "Bullet text cannot be empty."),
+  // Optional so an absent field means "leave it alone" rather than 400. It is
+  // still the only editable field, and still cannot be set to empty.
+  text: z.string().trim().min(1, "Bullet text cannot be empty.").optional(),
 });
 
 type Context = { params: Promise<{ id: string }> };
 
-/** Edit a bullet. Any save counts as the user having reviewed it. */
+/**
+ * Edit a bullet. Follows the write convention in CLAUDE.md: a field absent from
+ * the body is left alone.
+ *
+ * Any save counts as the user having reviewed it — but a body that asks for no
+ * changes is not a save, so it leaves `needsReview` alone too.
+ */
 export async function PATCH(
   request: Request,
   { params }: Context,
@@ -37,9 +45,11 @@ export async function PATCH(
     );
   }
 
+  const { text } = parsed.data;
+
   const updated = await prisma.bullet.update({
     where: { id: owned.id },
-    data: { text: parsed.data.text, needsReview: false },
+    data: text !== undefined ? { text, needsReview: false } : {},
     include: { duplicateOf: { select: { id: true, text: true } } },
   });
 

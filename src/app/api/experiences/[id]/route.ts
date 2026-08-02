@@ -32,7 +32,13 @@ function blankToNull(value: string | null | undefined): string | null {
 
 type Context = { params: Promise<{ id: string }> };
 
-/** Edit an experience. Any save counts as the user having reviewed it. */
+/**
+ * Edit an experience. Follows the write convention in CLAUDE.md: a field absent
+ * from the body is left alone, one sent as `null` or `""` is cleared.
+ *
+ * Any save counts as the user having reviewed it — but a body that asks for no
+ * changes is not a save, so it leaves `needsReview` alone too.
+ */
 export async function PATCH(
   request: Request,
   { params }: Context,
@@ -56,6 +62,9 @@ export async function PATCH(
   }
 
   const input = parsed.data;
+  const asksForChange = Object.values(input).some(
+    (value) => value !== undefined,
+  );
 
   await prisma.experience.update({
     where: { id: owned.id },
@@ -78,8 +87,8 @@ export async function PATCH(
       ...(input.summary !== undefined
         ? { summary: blankToNull(input.summary) }
         : {}),
-      // Editing is reviewing.
-      needsReview: false,
+      // Editing is reviewing — but an empty body edits nothing.
+      ...(asksForChange ? { needsReview: false } : {}),
     },
   });
 

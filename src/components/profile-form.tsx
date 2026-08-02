@@ -59,7 +59,7 @@ export function ProfileForm({ initial }: { initial: FormState }) {
 
     try {
       const response = await fetch("/api/profile", {
-        method: "PUT",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
