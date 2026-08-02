@@ -19,11 +19,6 @@ type Workspace = {
  */
 const PLACEHOLDERS = [
   {
-    title: "Master draft",
-    body: "Drag experiences and bullets from your data bank into the draft for this application.",
-    issue: "RE-9",
-  },
-  {
     title: "Tailoring",
     body: "Per-bullet rewrites proposed against this job description, each accepted or rejected on its own.",
     issue: "RE-10",

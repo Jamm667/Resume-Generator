@@ -1,9 +1,12 @@
 import { notFound } from "next/navigation";
 
 import { ApplicationWorkspace } from "@/components/applications/application-workspace";
-import { LibraryPane } from "@/components/builder/library-pane";
+import { BuilderShell } from "@/components/builder/builder-shell";
 import { Nav } from "@/components/nav";
 import { prisma } from "@/lib/db";
+import { toDraftView } from "@/lib/draft/view";
+import { getExperienceSummaries } from "@/lib/queries/bank";
+import { getDraft } from "@/lib/queries/draft";
 import { getRelevanceLibrary } from "@/lib/queries/relevance";
 import { requireUser } from "@/lib/require-user";
 
@@ -24,12 +27,16 @@ export default async function ApplicationPage({
     notFound();
   }
 
-  const library = await getRelevanceLibrary(user.id, application.id);
+  const [library, experiences, draft] = await Promise.all([
+    getRelevanceLibrary(user.id, application.id),
+    getExperienceSummaries(user.id),
+    getDraft(user.id, application.id),
+  ]);
 
   return (
     <>
       <Nav />
-      <main className="mx-auto max-w-4xl p-8">
+      <main className="mx-auto max-w-6xl p-8">
         <ApplicationWorkspace
           application={{
             id: application.id,
@@ -39,7 +46,12 @@ export default async function ApplicationPage({
             jdText: application.jdText,
           }}
         >
-          <LibraryPane applicationId={application.id} bullets={library} />
+          <BuilderShell
+            applicationId={application.id}
+            bullets={library}
+            experiences={experiences}
+            draft={toDraftView(draft)}
+          />
         </ApplicationWorkspace>
       </main>
     </>
