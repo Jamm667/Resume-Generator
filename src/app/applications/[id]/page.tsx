@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 
 import { ApplicationWorkspace } from "@/components/applications/application-workspace";
 import { BuilderShell } from "@/components/builder/builder-shell";
+import { CoverLetterPanel } from "@/components/cover-letter-panel";
 import { Nav } from "@/components/nav";
+import type { CoverLetterTone } from "@/lib/cover-letter/prompt";
 import { prisma } from "@/lib/db";
 import { toDraftView } from "@/lib/draft/view";
 import { getExperienceSummaries } from "@/lib/queries/bank";
@@ -51,6 +53,16 @@ export default async function ApplicationPage({
             bullets={library}
             experiences={experiences}
             draft={toDraftView(draft)}
+          />
+          <CoverLetterPanel
+            applicationId={application.id}
+            companyName={application.companyName ?? ""}
+            roleTitle={application.roleTitle ?? ""}
+            initialText={application.coverLetterText ?? ""}
+            initialTone={application.coverLetterTone as CoverLetterTone | null}
+            hasDraft={draft.some(
+              (experience) => experience.children.length > 0,
+            )}
           />
         </ApplicationWorkspace>
       </main>
