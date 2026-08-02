@@ -23,11 +23,6 @@ const PLACEHOLDERS = [
     body: "Per-bullet rewrites proposed against this job description, each accepted or rejected on its own.",
     issue: "RE-10",
   },
-  {
-    title: "Cover letter",
-    body: "A BLUF cover letter generated from the draft and this posting.",
-    issue: "RE-11",
-  },
 ];
 
 export function ApplicationWorkspace({
