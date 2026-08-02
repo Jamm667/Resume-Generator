@@ -322,9 +322,9 @@ export function LibraryPane({
 
       {!isBankEmpty && !hasScores && (
         <p className="mt-3 text-sm text-slate-500">
-          {bullets.length} bullet{bullets.length === 1 ? "" : "s"} in your bank.
-          Score them to see which ones this posting actually asks for, ranked
-          strongest first.
+          {bullets.length} bullet{bullets.length === 1 ? "" : "s"} in your bank,
+          all draggable into the draft. Score them to see which ones this
+          posting actually asks for, ranked strongest first.
         </p>
       )}
 
@@ -366,18 +366,28 @@ export function LibraryPane({
         </ul>
       )}
 
-      {hasScores && unscored.length > 0 && (
-        <div className="mt-5">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Not scored yet
-          </h3>
-          <p className="mt-1 text-xs text-slate-500">
-            Added to your bank after the last run, so they have no score — not a
-            low one. Score again to rank them.
-          </p>
+      {unscored.length > 0 && (
+        <div className={hasScores ? "mt-5" : "mt-2"}>
+          {/* Only worth calling out once a run has happened: before that,
+              nothing is scored and there is no ranking to be missing from. */}
+          {hasScores && (
+            <>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Not scored yet
+              </h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Added to your bank after the last run, so they have no score —
+                not a low one. Score again to rank them.
+              </p>
+            </>
+          )}
           <ul className="mt-2 space-y-2">
             {unscored.map((bullet) => (
-              <BulletRow key={bullet.id} bullet={bullet} isUsed={usedBullets.has(bullet.id)} />
+              <BulletRow
+                key={bullet.id}
+                bullet={bullet}
+                isUsed={usedBullets.has(bullet.id)}
+              />
             ))}
           </ul>
         </div>

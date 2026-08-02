@@ -152,6 +152,8 @@ export function BuilderShell({
       }),
     removeItem: (id) =>
       send(`/api/draft-items/${id}`, { method: "DELETE" }),
+    moveTo: (id, targetParentId, targetIndex) =>
+      move(id, targetParentId, targetIndex),
   };
 
   function onDragEnd(event: DragEndEvent) {

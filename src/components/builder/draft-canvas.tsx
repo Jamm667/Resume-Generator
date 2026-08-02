@@ -20,13 +20,23 @@ export type DraftActions = {
     id: string,
     patch: { userTitle?: string | null; userDateText?: string | null },
   ) => Promise<void>;
+  /** Move an item to an explicit position; used by the keyboard controls. */
+  moveTo: (
+    id: string,
+    targetParentId: string | null,
+    targetIndex: number,
+  ) => Promise<void>;
 };
 
 function ExperienceCard({
   experience,
+  position,
+  total,
   actions,
 }: {
   experience: DraftExperienceView;
+  position: number;
+  total: number;
   actions: DraftActions;
 }) {
   const {
@@ -68,15 +78,35 @@ function ExperienceCard({
       } ${isDragging ? "opacity-40" : ""}`}
     >
       <div className="flex items-start gap-2">
-        <button
-          type="button"
-          {...attributes}
-          {...listeners}
-          aria-label={`Reorder experience: ${experience.title}`}
-          className="mt-0.5 shrink-0 cursor-grab rounded px-1 text-slate-400 hover:bg-slate-100"
-        >
-          ⠿
-        </button>
+        <div className="flex shrink-0 flex-col items-center">
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            aria-label={`Reorder experience: ${experience.title}`}
+            className="cursor-grab rounded px-1 text-slate-400 hover:bg-slate-100"
+          >
+            ⠿
+          </button>
+          <button
+            type="button"
+            disabled={position === 0}
+            onClick={() => void actions.moveTo(experience.id, null, position - 1)}
+            aria-label={`Move experience up: ${experience.title}`}
+            className="rounded px-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            disabled={position === total - 1}
+            onClick={() => void actions.moveTo(experience.id, null, position + 1)}
+            aria-label={`Move experience down: ${experience.title}`}
+            className="rounded px-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+          >
+            ↓
+          </button>
+        </div>
 
         {isEditing ? (
           <div className="min-w-0 flex-1 space-y-2">
@@ -193,13 +223,18 @@ function ExperienceCard({
           strategy={verticalListSortingStrategy}
         >
           <ul className="space-y-2">
-            {experience.bullets.map((bullet) => (
+            {experience.bullets.map((bullet, index) => (
               <DraftBullet
                 key={bullet.id}
                 bullet={bullet}
+                position={index}
+                total={experience.bullets.length}
                 onSave={(text) => actions.saveBullet(bullet.id, text)}
                 onRevert={() => actions.revertBullet(bullet.id)}
                 onRemove={() => actions.removeItem(bullet.id)}
+                onMove={(direction) =>
+                  actions.moveTo(bullet.id, experience.id, index + direction)
+                }
               />
             ))}
           </ul>
@@ -251,10 +286,12 @@ export function DraftCanvas({
           strategy={verticalListSortingStrategy}
         >
           <ul className="space-y-3">
-            {draft.map((experience) => (
+            {draft.map((experience, index) => (
               <ExperienceCard
                 key={experience.id}
                 experience={experience}
+                position={index}
+                total={draft.length}
                 actions={actions}
               />
             ))}

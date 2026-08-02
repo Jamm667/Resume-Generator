@@ -14,14 +14,21 @@ import type { DraftBulletView } from "@/lib/draft/view";
  */
 export function DraftBullet({
   bullet,
+  position,
+  total,
   onSave,
   onRevert,
   onRemove,
+  onMove,
 }: {
   bullet: DraftBulletView;
+  position: number;
+  total: number;
   onSave: (text: string) => Promise<void>;
   onRevert: () => Promise<void>;
   onRemove: () => Promise<void>;
+  /** Keyboard-operable reordering; pointer users drag the handle instead. */
+  onMove: (direction: -1 | 1) => Promise<void>;
 }) {
   const {
     attributes,
@@ -59,15 +66,35 @@ export function DraftBullet({
       }`}
     >
       <div className="flex items-start gap-2">
-        <button
-          type="button"
-          {...attributes}
-          {...listeners}
-          aria-label={`Reorder bullet: ${bullet.text.slice(0, 40)}`}
-          className="mt-0.5 shrink-0 cursor-grab rounded px-1 text-slate-400 hover:bg-slate-100"
-        >
-          ⠿
-        </button>
+        <div className="flex shrink-0 flex-col items-center">
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            aria-label={`Reorder bullet: ${bullet.text.slice(0, 40)}`}
+            className="cursor-grab rounded px-1 text-slate-400 hover:bg-slate-100"
+          >
+            ⠿
+          </button>
+          <button
+            type="button"
+            disabled={isBusy || position === 0}
+            onClick={() => void run(() => onMove(-1))}
+            aria-label={`Move bullet up: ${bullet.text.slice(0, 40)}`}
+            className="rounded px-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            disabled={isBusy || position === total - 1}
+            onClick={() => void run(() => onMove(1))}
+            aria-label={`Move bullet down: ${bullet.text.slice(0, 40)}`}
+            className="rounded px-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+          >
+            ↓
+          </button>
+        </div>
 
         {isEditing ? (
           <div className="min-w-0 flex-1">
