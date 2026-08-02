@@ -1,7 +1,14 @@
-import type { DraftItem, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
 import { getAnthropicClient } from "@/lib/anthropic";
 import { prisma } from "@/lib/db";
+// The three-layer rule lives here so the cover letter and the exports read the
+// draft exactly the way tailoring does.
+import {
+  effectiveDateText,
+  effectiveText,
+  effectiveTitle,
+} from "@/lib/draft/effective-text";
 import { isFabricated } from "@/lib/tailor/numeric-guard";
 import { TAILOR_SYSTEM_PROMPT, tailorUserPrompt } from "@/lib/tailor/prompt";
 import {
@@ -31,34 +38,6 @@ export type TailorOutcome =
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * The text a rewrite is proposed against.
- *
- * An accepted rewrite is what the user is standing behind now, so it — not the
- * original — is the baseline the guard compares against and the text the model
- * is shown (AC-9).
- */
-export function effectiveText(item: DraftItem): string {
-  if (item.tailorStatus === "ACCEPTED" && item.tailoredText) {
-    return item.tailoredText;
-  }
-  return item.userText ?? item.originalText;
-}
-
-export function effectiveTitle(item: DraftItem): string {
-  if (item.headerTailorStatus === "ACCEPTED" && item.tailoredTitle) {
-    return item.tailoredTitle;
-  }
-  return item.userTitle ?? item.originalTitle ?? item.originalText;
-}
-
-export function effectiveDateText(item: DraftItem): string {
-  if (item.headerTailorStatus === "ACCEPTED" && item.tailoredDateText) {
-    return item.tailoredDateText;
-  }
-  return item.userDateText ?? item.originalDateText ?? "";
 }
 
 /** One constrained call, parsed and validated. Throws on any failure. */

@@ -13,24 +13,12 @@ type Workspace = {
   jdText: string;
 };
 
-/**
- * Sections later issues fill in. They are rendered as explicit placeholders
- * rather than omitted so the shape of the workspace is visible from the start.
- */
-const PLACEHOLDERS = [
-  {
-    title: "Cover letter",
-    body: "A BLUF cover letter generated from the draft and this posting.",
-    issue: "RE-11",
-  },
-];
-
 export function ApplicationWorkspace({
   application,
   children,
 }: {
   application: Workspace;
-  /** Sections rendered under the job description, above the placeholders. */
+  /** The builder, tailoring, and cover letter, under the job description. */
   children?: ReactNode;
 }) {
   const router = useRouter();
@@ -202,23 +190,6 @@ export function ApplicationWorkspace({
       </section>
 
       {children}
-
-      {PLACEHOLDERS.map((section) => (
-        <section
-          key={section.title}
-          className="rounded-xl border border-dashed border-slate-300 bg-white p-5"
-        >
-          <div className="flex items-baseline justify-between gap-4">
-            <h2 className="text-sm font-semibold text-slate-700">
-              {section.title}
-            </h2>
-            <span className="shrink-0 text-xs text-slate-400">
-              {section.issue}
-            </span>
-          </div>
-          <p className="mt-1 text-sm text-slate-500">{section.body}</p>
-        </section>
-      ))}
 
       {confirmDelete && (
         <ConfirmDialog
