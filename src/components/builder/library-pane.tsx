@@ -1,9 +1,11 @@
 "use client";
 
+import { useDraggable } from "@dnd-kit/core";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 
+import type { ExperienceSummary } from "@/lib/queries/bank";
 import {
   bandOf,
   hasAnyScore,
@@ -35,13 +37,103 @@ const BAND_LABEL: Record<RelevanceBand, string> = {
   unscored: "Not scored",
 };
 
-function BulletRow({ bullet }: { bullet: LibraryBullet }) {
+/** A grab handle that starts a drag, or an explanation of why it cannot. */
+function DragHandle({
+  id,
+  data,
+  label,
+  disabled,
+}: {
+  id: string;
+  data: Record<string, unknown>;
+  label: string;
+  disabled?: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id,
+    data,
+    disabled,
+  });
+
+  return (
+    <button
+      type="button"
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      disabled={disabled}
+      aria-label={label}
+      className={`shrink-0 rounded px-1 text-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 ${
+        isDragging ? "opacity-40" : "cursor-grab"
+      }`}
+    >
+      ⠿
+    </button>
+  );
+}
+
+function ExperienceRow({
+  experience,
+  isUsed,
+}: {
+  experience: ExperienceSummary;
+  isUsed: boolean;
+}) {
+  return (
+    <li className="rounded-xl border border-slate-200 bg-white p-3">
+      <div className="flex items-start gap-2">
+        <DragHandle
+          id={`lib-experience-${experience.id}`}
+          data={{ source: "library", kind: "EXPERIENCE", sourceId: experience.id }}
+          label={`Drag ${experience.title} into the draft`}
+          disabled={isUsed}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-slate-800">
+            {experience.title}
+          </p>
+          <p className="text-xs text-slate-500">
+            {[experience.organization, experience.dateText]
+              .filter(Boolean)
+              .join(" · ")}{" "}
+            · {experience.bulletCount} bullet
+            {experience.bulletCount === 1 ? "" : "s"}
+          </p>
+        </div>
+        {isUsed && (
+          <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-700">
+            In draft
+          </span>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function BulletRow({
+  bullet,
+  isUsed,
+}: {
+  bullet: LibraryBullet;
+  isUsed: boolean;
+}) {
   const band = bandOf(bullet.score);
 
   return (
     <li className={`rounded-xl border p-3 ${BAND_STYLE[band]}`}>
       <div className="flex items-start justify-between gap-3">
-        <p className="text-sm text-slate-800">{bullet.text}</p>
+        <DragHandle
+          id={`lib-bullet-${bullet.id}`}
+          data={{ source: "library", kind: "BULLET", sourceId: bullet.id }}
+          label={`Drag bullet into the draft: ${bullet.text.slice(0, 40)}`}
+          disabled={isUsed}
+        />
+        <p className="min-w-0 flex-1 text-sm text-slate-800">{bullet.text}</p>
+        {isUsed && (
+          <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-700">
+            In draft
+          </span>
+        )}
         <span
           title={BAND_LABEL[band]}
           className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${BADGE_STYLE[band]}`}
@@ -80,11 +172,23 @@ function BulletRow({ bullet }: { bullet: LibraryBullet }) {
 export function LibraryPane({
   applicationId,
   bullets,
+  experiences,
+  usedBulletIds,
+  usedExperienceIds,
 }: {
   applicationId: string;
   bullets: LibraryBullet[];
+  experiences: ExperienceSummary[];
+  /** Source ids already in the draft, so they can be marked and not re-added. */
+  usedBulletIds: string[];
+  usedExperienceIds: string[];
 }) {
   const router = useRouter();
+  const usedBullets = useMemo(() => new Set(usedBulletIds), [usedBulletIds]);
+  const usedExperiences = useMemo(
+    () => new Set(usedExperienceIds),
+    [usedExperienceIds],
+  );
   const [isScoring, setIsScoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -224,10 +328,40 @@ export function LibraryPane({
         </p>
       )}
 
+      {experiences.length > 0 && (
+        <div className="mt-5">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Experiences
+          </h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Drag a whole experience into the draft and its bullets come with it.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {experiences.map((experience) => (
+              <ExperienceRow
+                key={experience.id}
+                experience={experience}
+                isUsed={usedExperiences.has(experience.id)}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(scored.length > 0 || unscored.length > 0) && (
+        <h3 className="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Bullets
+        </h3>
+      )}
+
       {scored.length > 0 && (
-        <ul className="mt-4 space-y-2">
+        <ul className="mt-2 space-y-2">
           {scored.map((bullet) => (
-            <BulletRow key={bullet.id} bullet={bullet} />
+            <BulletRow
+              key={bullet.id}
+              bullet={bullet}
+              isUsed={usedBullets.has(bullet.id)}
+            />
           ))}
         </ul>
       )}
@@ -243,7 +377,7 @@ export function LibraryPane({
           </p>
           <ul className="mt-2 space-y-2">
             {unscored.map((bullet) => (
-              <BulletRow key={bullet.id} bullet={bullet} />
+              <BulletRow key={bullet.id} bullet={bullet} isUsed={usedBullets.has(bullet.id)} />
             ))}
           </ul>
         </div>
