@@ -83,6 +83,58 @@ describe("validateUpload", () => {
 
     expect(rejected[0].reason).toMatch(/empty/i);
   });
+
+  it("keeps two files that share a name, tagged with their own positions", () => {
+    const { accepted, rejected } = validateUpload([
+      { filename: "resume.pdf", size: 1024, mimeType: PDF_MIME },
+      { filename: "resume.pdf", size: 2048, mimeType: PDF_MIME },
+    ]);
+
+    expect(rejected).toEqual([]);
+    expect(accepted).toHaveLength(2);
+    expect(accepted.map((c) => c.index)).toEqual([0, 1]);
+  });
+
+  it("tags a rejection with the position of the file that was rejected", () => {
+    const { accepted, rejected } = validateUpload([
+      { filename: "resume.pdf", size: 1024, mimeType: PDF_MIME },
+      { filename: "notes.txt", size: 10, mimeType: "text/plain" },
+      { filename: "resume.pdf", size: 2048, mimeType: PDF_MIME },
+    ]);
+
+    expect(accepted.map((c) => c.index)).toEqual([0, 2]);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].index).toBe(1);
+  });
+
+  it("distinguishes same-named files when only one of them is rejected", () => {
+    const { accepted, rejected } = validateUpload([
+      { filename: "resume.pdf", size: 11 * 1024 * 1024, mimeType: PDF_MIME },
+      { filename: "resume.pdf", size: 2048, mimeType: PDF_MIME },
+    ]);
+
+    // Same name, opposite verdicts — only the position tells them apart.
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0].index).toBe(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].index).toBe(0);
+    expect(rejected[0].reason).toMatch(/Too large/);
+  });
+
+  it("numbers over-the-limit rejections by their real positions", () => {
+    const candidates = Array.from({ length: 12 }, () => ({
+      filename: "resume.pdf",
+      size: 1024,
+      mimeType: PDF_MIME,
+    }));
+
+    const { accepted, rejected } = validateUpload(candidates);
+
+    expect(accepted.map((c) => c.index)).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+    ]);
+    expect(rejected.map((r) => r.index)).toEqual([10, 11]);
+  });
 });
 
 describe("extractDocument", () => {
