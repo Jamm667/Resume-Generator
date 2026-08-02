@@ -11,11 +11,19 @@ import {
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { DraftCanvas, type DraftActions } from "@/components/builder/draft-canvas";
 import { LibraryPane } from "@/components/builder/library-pane";
-import type { DraftExperienceView } from "@/lib/draft/view";
+import {
+  TailorPanel,
+  type TailorActions,
+} from "@/components/builder/tailor-panel";
+import {
+  proposedBullets,
+  proposedHeaders,
+  type DraftExperienceView,
+} from "@/lib/draft/view";
 import type { ExperienceSummary } from "@/lib/queries/bank";
 import type { LibraryBullet } from "@/lib/relevance/library";
 
@@ -53,6 +61,12 @@ export function BuilderShell({
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [isTailoring, setIsTailoring] = useState(false);
+  const [tailorError, setTailorError] = useState<string | null>(null);
+
+  // Same synchronous guard as the relevance pass: `isTailoring` is captured per
+  // render, so two clicks in one tick would both read it as false.
+  const isTailorRunning = useRef(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -154,6 +168,92 @@ export function BuilderShell({
       send(`/api/draft-items/${id}`, { method: "DELETE" }),
     moveTo: (id, targetParentId, targetIndex) =>
       move(id, targetParentId, targetIndex),
+    rejectTailored: (id) => decide(id, { tailorStatus: "REJECTED" }),
+    rejectTailoredHeader: (id) => decide(id, { headerTailorStatus: "REJECTED" }),
+  };
+
+  /** One accept/reject decision. Kept out of `send` so bulk runs can batch. */
+  async function decide(
+    id: string,
+    body: { tailorStatus?: string; headerTailorStatus?: string },
+    refresh = true,
+  ): Promise<void> {
+    const response = await fetch(`/api/draft-items/${id}/tailor-status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      setTailorError(
+        (data as { error?: string })?.error ??
+          `That decision did not save (${response.status}).`,
+      );
+      return;
+    }
+
+    if (refresh) router.refresh();
+  }
+
+  /** Apply one decision to every proposal currently on screen. */
+  async function decideAll(decision: "ACCEPTED" | "REJECTED") {
+    setIsBusy(true);
+    setTailorError(null);
+
+    try {
+      // Blocked bullets are not in `proposedBullets`, so Accept all cannot
+      // reach them (AC-7).
+      await Promise.all([
+        ...proposedBullets(draft).map((bullet) =>
+          decide(bullet.id, { tailorStatus: decision }, false),
+        ),
+        ...proposedHeaders(draft).map((experience) =>
+          decide(experience.id, { headerTailorStatus: decision }, false),
+        ),
+      ]);
+      router.refresh();
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  const tailorActions: TailorActions = {
+    run: async () => {
+      if (isTailorRunning.current) return;
+      isTailorRunning.current = true;
+      setIsTailoring(true);
+      setTailorError(null);
+
+      try {
+        const response = await fetch(
+          `/api/applications/${applicationId}/tailor`,
+          { method: "POST" },
+        );
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          setTailorError(
+            (data as { error?: string })?.error ??
+              `Tailoring failed (${response.status}).`,
+          );
+          return;
+        }
+
+        router.refresh();
+      } catch (caught) {
+        setTailorError(
+          caught instanceof Error ? caught.message : String(caught),
+        );
+      } finally {
+        isTailorRunning.current = false;
+        setIsTailoring(false);
+      }
+    },
+    decideBullet: (id, decision) => decide(id, { tailorStatus: decision }),
+    decideHeader: (id, decision) => decide(id, { headerTailorStatus: decision }),
+    acceptAll: () => decideAll("ACCEPTED"),
+    rejectAll: () => decideAll("REJECTED"),
   };
 
   function onDragEnd(event: DragEndEvent) {
@@ -244,6 +344,16 @@ export function BuilderShell({
           usedExperienceIds={usedExperienceIds}
         />
         <DraftCanvas draft={draft} actions={actions} />
+      </div>
+
+      <div className="mt-6">
+        <TailorPanel
+          draft={draft}
+          isRunning={isTailoring}
+          isBusy={isBusy}
+          error={tailorError}
+          actions={tailorActions}
+        />
       </div>
     </DndContext>
   );
