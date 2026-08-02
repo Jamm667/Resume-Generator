@@ -20,6 +20,7 @@ export function DraftBullet({
   onRevert,
   onRemove,
   onMove,
+  onRejectTailored,
 }: {
   bullet: DraftBulletView;
   position: number;
@@ -29,7 +30,10 @@ export function DraftBullet({
   onRemove: () => Promise<void>;
   /** Keyboard-operable reordering; pointer users drag the handle instead. */
   onMove: (direction: -1 | 1) => Promise<void>;
+  /** Undo an accepted rewrite, falling back to the user's own text. */
+  onRejectTailored: () => Promise<void>;
 }) {
+  const isTailored = bullet.tailorStatus === "ACCEPTED";
   const {
     attributes,
     listeners,
@@ -136,7 +140,15 @@ export function DraftBullet({
         )}
 
         <div className="flex shrink-0 items-center gap-1">
-          {bullet.isEdited && !isEditing && (
+          {isTailored && !isEditing && (
+            <span
+              title={`Your text: ${bullet.tailorBaseline}`}
+              className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800"
+            >
+              tailored
+            </span>
+          )}
+          {bullet.isEdited && !isTailored && !isEditing && (
             <span
               title={`Original: ${bullet.originalText}`}
               className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800"
@@ -153,11 +165,15 @@ export function DraftBullet({
               Edit
             </button>
           )}
-          {bullet.isEdited && !isEditing && (
+          {(bullet.isEdited || isTailored) && !isEditing && (
             <button
               type="button"
               disabled={isBusy}
-              onClick={() => void run(onRevert)}
+              onClick={() =>
+                // An accepted rewrite reverts by being rejected, which keeps
+                // the proposal viewable; a hand edit reverts by being cleared.
+                void run(isTailored ? onRejectTailored : onRevert)
+              }
               className="rounded px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
             >
               Revert to original

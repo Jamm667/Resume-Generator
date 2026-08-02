@@ -26,6 +26,9 @@ export type DraftActions = {
     targetParentId: string | null,
     targetIndex: number,
   ) => Promise<void>;
+  /** Undo an accepted rewrite; the proposal stays viewable (AC-8). */
+  rejectTailored: (id: string) => Promise<void>;
+  rejectTailoredHeader: (id: string) => Promise<void>;
 };
 
 function ExperienceCard({
@@ -67,7 +70,9 @@ function ExperienceCard({
     }
   }, [experience.title, experience.dateText, isEditing]);
 
-  const isHeaderEdited = experience.isTitleEdited || experience.isDateEdited;
+  const isHeaderTailored = experience.headerTailorStatus === "ACCEPTED";
+  const isHeaderEdited =
+    experience.isTitleEdited || experience.isDateEdited || isHeaderTailored;
 
   return (
     <li
@@ -193,12 +198,15 @@ function ExperienceCard({
               disabled={isBusy}
               onClick={() => {
                 setIsBusy(true);
-                void actions
-                  .saveHeader(experience.id, {
-                    userTitle: null,
-                    userDateText: null,
-                  })
-                  .finally(() => setIsBusy(false));
+                // An accepted header rewrite reverts by being rejected; a hand
+                // edit reverts by being cleared.
+                void (isHeaderTailored
+                  ? actions.rejectTailoredHeader(experience.id)
+                  : actions.saveHeader(experience.id, {
+                      userTitle: null,
+                      userDateText: null,
+                    })
+                ).finally(() => setIsBusy(false));
               }}
               className="rounded px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
             >
@@ -235,6 +243,7 @@ function ExperienceCard({
                 onMove={(direction) =>
                   actions.moveTo(bullet.id, experience.id, index + direction)
                 }
+                onRejectTailored={() => actions.rejectTailored(bullet.id)}
               />
             ))}
           </ul>
