@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DOCX_MIME, MAX_FILE_BYTES } from "@/lib/extract";
+import { DOCX_MIME } from "@/lib/extract";
 
 const { mockRequireUser, mockExtract, mockStructure } = vi.hoisted(() => ({
   mockRequireUser: vi.fn(),
@@ -26,12 +26,17 @@ function docx(name: string, bytes = 512): File {
   return new File([new Uint8Array(bytes)], name, { type: DOCX_MIME });
 }
 
-/** A file that reports itself as over the 10 MB limit. */
-function oversizeDocx(name: string): File {
-  const file = docx(name, 8);
-  // Faking the size keeps the test from allocating 10 MB per run.
-  Object.defineProperty(file, "size", { value: MAX_FILE_BYTES + 1 });
-  return file;
+/**
+ * A file that gets rejected, sharing a name with an accepted one.
+ *
+ * Empty rather than oversize: a patched `size` does not survive the FormData
+ * round trip into the route, and an actually-oversize file would mean
+ * allocating 10 MB per run. The route-level path is the same either way — a
+ * rejection among same-named files — and `validateUpload` covers the size rule
+ * directly.
+ */
+function emptyDocx(name: string): File {
+  return docx(name, 0);
 }
 
 function upload(files: File[]): Request {
@@ -109,15 +114,15 @@ describe.skipIf(!hasDatabase)("POST /api/documents", () => {
   it("attributes the rejection to the right file when the names collide", async () => {
     const user = await makeUser();
 
-    // Same name, one over the limit. Only position tells them apart.
+    // Same name, opposite verdicts. Only position tells them apart.
     const response = await POST(
-      upload([oversizeDocx("resume.docx"), docx("resume.docx")]),
+      upload([emptyDocx("resume.docx"), docx("resume.docx")]),
     );
     const body = await response.json();
 
     expect(body.rejected).toHaveLength(1);
     expect(body.rejected[0].index).toBe(0);
-    expect(body.rejected[0].reason).toMatch(/Too large/);
+    expect(body.rejected[0].reason).toMatch(/empty/i);
 
     // The acceptable one still got its row, and it is the second file.
     expect(body.documents).toHaveLength(1);
