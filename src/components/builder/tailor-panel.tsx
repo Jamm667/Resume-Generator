@@ -5,6 +5,8 @@ import {
   blockedBullets,
   proposedBullets,
   proposedHeaders,
+  reviewedBullets,
+  reviewedHeaders,
   type DraftExperienceView,
 } from "@/lib/draft/view";
 
@@ -70,6 +72,8 @@ export function TailorPanel({
   const proposals = proposedBullets(draft);
   const blocked = blockedBullets(draft);
   const headers = proposedHeaders(draft);
+  const reviewed = reviewedBullets(draft);
+  const reviewedHeads = reviewedHeaders(draft);
   const isDraftEmpty = draft.length === 0;
   const pending = proposals.length + headers.length;
 
@@ -213,6 +217,86 @@ export function TailorPanel({
             ))}
           </ul>
         </div>
+      )}
+
+      {(reviewed.length > 0 || reviewedHeads.length > 0) && (
+        <details className="mt-5">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Already decided ({reviewed.length + reviewedHeads.length})
+          </summary>
+          <p className="mt-1 text-xs text-slate-500">
+            Kept so you can see what was proposed and change your mind.
+          </p>
+          <ul className="mt-2 space-y-3">
+            {reviewedHeads.map((experience) => (
+              <li
+                key={experience.id}
+                className="rounded-xl border border-slate-200 p-3"
+              >
+                <TextDiff
+                  original={experience.titleBaseline}
+                  rewrite={experience.tailoredTitle ?? experience.titleBaseline}
+                  originalLabel="Your title"
+                  rewriteLabel={
+                    experience.headerTailorStatus === "ACCEPTED"
+                      ? "Accepted title"
+                      : "Rejected title"
+                  }
+                />
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() =>
+                    void actions.decideHeader(
+                      experience.id,
+                      experience.headerTailorStatus === "ACCEPTED"
+                        ? "REJECTED"
+                        : "ACCEPTED",
+                    )
+                  }
+                  className="mt-2 rounded border border-slate-300 px-2 py-1 text-xs font-medium disabled:opacity-50"
+                >
+                  {experience.headerTailorStatus === "ACCEPTED"
+                    ? "Revert to original"
+                    : "Accept after all"}
+                </button>
+              </li>
+            ))}
+            {reviewed.map((bullet) => (
+              <li
+                key={bullet.id}
+                className="rounded-xl border border-slate-200 p-3"
+              >
+                <TextDiff
+                  original={bullet.tailorBaseline}
+                  rewrite={bullet.tailoredText ?? bullet.tailorBaseline}
+                  rewriteLabel={
+                    bullet.tailorStatus === "ACCEPTED"
+                      ? "Accepted"
+                      : "Rejected"
+                  }
+                />
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() =>
+                    void actions.decideBullet(
+                      bullet.id,
+                      bullet.tailorStatus === "ACCEPTED"
+                        ? "REJECTED"
+                        : "ACCEPTED",
+                    )
+                  }
+                  className="mt-2 rounded border border-slate-300 px-2 py-1 text-xs font-medium disabled:opacity-50"
+                >
+                  {bullet.tailorStatus === "ACCEPTED"
+                    ? "Revert to original"
+                    : "Accept after all"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
       {blocked.length > 0 && (

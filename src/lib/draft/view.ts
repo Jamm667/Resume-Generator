@@ -121,3 +121,32 @@ export function proposedHeaders(
     (experience) => experience.headerTailorStatus === "PROPOSED",
   );
 }
+
+/**
+ * Proposals already ruled on, which keep their diff so a decision can be
+ * looked at again and changed (AC-8). Blocked items are not decisions and
+ * belong in their own section.
+ */
+export function reviewedBullets(
+  draft: readonly DraftExperienceView[],
+): DraftBulletView[] {
+  return draft.flatMap((experience) =>
+    experience.bullets.filter(
+      (bullet) =>
+        bullet.tailoredText !== null &&
+        (bullet.tailorStatus === "ACCEPTED" ||
+          bullet.tailorStatus === "REJECTED"),
+    ),
+  );
+}
+
+export function reviewedHeaders(
+  draft: readonly DraftExperienceView[],
+): DraftExperienceView[] {
+  return draft.filter(
+    (experience) =>
+      experience.tailoredTitle !== null &&
+      (experience.headerTailorStatus === "ACCEPTED" ||
+        experience.headerTailorStatus === "REJECTED"),
+  );
+}
