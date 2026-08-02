@@ -7,12 +7,16 @@ import {
 } from "@/lib/draft/effective-text";
 
 /**
- * Markdown export, kept pure so the document can be tested character by
- * character without a database.
+ * The structured document both exports render from.
  *
- * Everything here reads the draft through `effective-text`, which is the only
- * thing standing between the user and an export that quotes a rewrite they
- * rejected — or worse, one the numeric guard blocked.
+ * There is one content path on purpose: every rule about *what* the resume
+ * says — which text a tailored bullet uses, what order sections come in, what
+ * belongs in the contact line — is decided here, once. A renderer's only job is
+ * to put these strings on a page.
+ *
+ * Everything reads the draft through `effective-text`, which is the only thing
+ * standing between the user and an export quoting a rewrite they rejected — or
+ * worse, one the numeric guard blocked.
  */
 
 export type ExportProfile = {
@@ -27,6 +31,32 @@ export type ExportProfile = {
 export type ExportExperience = DraftItem & {
   children: DraftItem[];
   sourceExperience: { kind: ExperienceKind } | null;
+};
+
+export type DocumentExperience = {
+  /** `Title — Organization`, or just the title when there is no organization. */
+  heading: string;
+  dateText: string;
+  bullets: string[];
+};
+
+export type DocumentSection = {
+  heading: string;
+  experiences: DocumentExperience[];
+};
+
+export type ResumeDocument = {
+  name: string | null;
+  contact: string;
+  sections: DocumentSection[];
+};
+
+export type LetterDocument = {
+  name: string | null;
+  contact: string;
+  date: string;
+  addressee: string;
+  paragraphs: string[];
 };
 
 /** Section order is fixed: what you did, then what you built, then school. */
@@ -45,16 +75,6 @@ function kindOf(experience: ExportExperience): ExperienceKind {
   return experience.sourceExperience?.kind ?? "JOB";
 }
 
-/**
- * Collapse runs of blank lines and trim the ends.
- *
- * Sections are built by joining optional pieces, so an absent date or an
- * experience with no bullets would otherwise leave a gap behind (AC-9).
- */
-function tidy(markdown: string): string {
-  return markdown.replace(/\n{3,}/g, "\n\n").trim() + "\n";
-}
-
 /** `Dana Whitfield` → `dana-whitfield`; punctuation and accents included. */
 export function slugify(value: string): string {
   const slug = value
@@ -69,7 +89,7 @@ export function slugify(value: string): string {
 }
 
 /** `email · phone · location · Label: url`, skipping whatever is missing. */
-function contactLine(profile: ExportProfile): string {
+export function contactLine(profile: ExportProfile): string {
   const parts = [
     profile.email,
     profile.phone,
@@ -80,72 +100,58 @@ function contactLine(profile: ExportProfile): string {
   return parts.join(" · ");
 }
 
-function contactHeader(profile: ExportProfile): string {
-  const lines: string[] = [];
-
-  // No name means no `#` heading rather than an empty one (AC-9).
-  if (profile.fullName && profile.fullName.trim().length > 0) {
-    lines.push(`# ${profile.fullName.trim()}`);
-  }
-
-  const contact = contactLine(profile);
-  if (contact.length > 0) lines.push(contact);
-
-  return lines.join("\n\n");
+function trimmedName(profile: ExportProfile): string | null {
+  const name = profile.fullName?.trim() ?? "";
+  return name.length > 0 ? name : null;
 }
 
-function experienceBlock(experience: ExportExperience): string {
+function experienceOf(experience: ExportExperience): DocumentExperience {
   const title = effectiveTitle(experience);
   const organization = experience.organization?.trim() ?? "";
-  const heading =
-    organization.length > 0 ? `### ${title} — ${organization}` : `### ${title}`;
 
-  const lines = [heading];
-
-  const dates = effectiveDateText(experience).trim();
-  if (dates.length > 0) lines.push(dates);
-
-  const bullets = [...experience.children]
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((bullet) => `- ${effectiveText(bullet).trim()}`);
-
-  if (bullets.length > 0) lines.push(bullets.join("\n"));
-
-  return lines.join("\n\n");
+  return {
+    heading: organization.length > 0 ? `${title} — ${organization}` : title,
+    dateText: effectiveDateText(experience).trim(),
+    bullets: [...experience.children]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((bullet) => effectiveText(bullet).trim())
+      .filter((text) => text.length > 0),
+  };
 }
 
 /**
  * The tailored resume. Sections with nothing in them are omitted entirely
- * rather than left as a bare heading.
+ * rather than surviving as a bare heading.
  */
-export function buildResumeMarkdown(
+export function buildResumeDocument(
   profile: ExportProfile,
   draft: readonly ExportExperience[],
-): string {
+): ResumeDocument {
   const ordered = [...draft].sort((a, b) => a.sortOrder - b.sortOrder);
-  const blocks: string[] = [];
 
-  const header = contactHeader(profile);
-  if (header.length > 0) blocks.push(header);
-
+  const sections: DocumentSection[] = [];
   for (const section of SECTIONS) {
-    const items = ordered.filter(
-      (experience) => kindOf(experience) === section.kind,
-    );
-    if (items.length === 0) continue;
+    const experiences = ordered
+      .filter((experience) => kindOf(experience) === section.kind)
+      .map(experienceOf);
 
-    blocks.push(`## ${section.heading}`);
-    for (const item of items) blocks.push(experienceBlock(item));
+    if (experiences.length > 0) {
+      sections.push({ heading: section.heading, experiences });
+    }
   }
 
-  return tidy(blocks.join("\n\n"));
+  return {
+    name: trimmedName(profile),
+    contact: contactLine(profile),
+    sections,
+  };
 }
 
 /**
  * The cover letter as a standalone document: the same contact header, the
  * date, who it is addressed to, then the letter exactly as the user left it.
  */
-export function buildCoverLetterMarkdown({
+export function buildLetterDocument({
   profile,
   companyName,
   roleTitle,
@@ -157,28 +163,35 @@ export function buildCoverLetterMarkdown({
   roleTitle: string | null;
   date: string;
   body: string;
-}): string {
-  const blocks: string[] = [];
-
-  const header = contactHeader(profile);
-  if (header.length > 0) blocks.push(header);
-
-  blocks.push(date);
-
+}): LetterDocument {
   const addressee = [companyName?.trim(), roleTitle?.trim()]
     .filter((part): part is string => Boolean(part && part.length > 0))
     .join(" — ");
-  if (addressee.length > 0) blocks.push(addressee);
 
-  blocks.push(body.trim());
-
-  return tidy(blocks.join("\n\n"));
+  return {
+    name: trimmedName(profile),
+    contact: contactLine(profile),
+    date,
+    addressee,
+    paragraphs: body
+      .trim()
+      .split(/\n\s*\n/)
+      .map((paragraph) => paragraph.trim())
+      .filter((paragraph) => paragraph.length > 0),
+  };
 }
 
-/** `{name-slug}-resume.md` and `{name-slug}-cover-letter.md`. */
+/** Every bullet in the document, in reading order. */
+export function resumeBullets(document: ResumeDocument): string[] {
+  return document.sections.flatMap((section) =>
+    section.experiences.flatMap((experience) => experience.bullets),
+  );
+}
+
+/** `{name-slug}-resume.pdf` and `{name-slug}-cover-letter.pdf`. */
 export function exportFilename(
   applicationName: string,
   document: "resume" | "cover-letter",
 ): string {
-  return `${slugify(applicationName)}-${document}.md`;
+  return `${slugify(applicationName)}-${document}.pdf`;
 }
