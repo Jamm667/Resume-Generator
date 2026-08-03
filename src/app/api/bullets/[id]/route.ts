@@ -12,6 +12,9 @@ const updateSchema = z.object({
   // Optional so an absent field means "leave it alone" rather than 400. It is
   // still the only editable field, and still cannot be set to empty.
   text: z.string().trim().min(1, "Bullet text cannot be empty.").optional(),
+  // Confirming a bullet without changing it. An empty body is a no-op by
+  // convention, so approving has to say so explicitly.
+  needsReview: z.boolean().optional(),
 });
 
 type Context = { params: Promise<{ id: string }> };
@@ -45,11 +48,18 @@ export async function PATCH(
     );
   }
 
-  const { text } = parsed.data;
+  const { text, needsReview } = parsed.data;
+
+  // An explicit flag wins; otherwise editing the text counts as reviewing it.
+  const reviewed =
+    needsReview !== undefined ? needsReview : text !== undefined ? false : undefined;
 
   const updated = await prisma.bullet.update({
     where: { id: owned.id },
-    data: text !== undefined ? { text, needsReview: false } : {},
+    data: {
+      ...(text !== undefined ? { text } : {}),
+      ...(reviewed !== undefined ? { needsReview: reviewed } : {}),
+    },
     include: { duplicateOf: { select: { id: true, text: true } } },
   });
 

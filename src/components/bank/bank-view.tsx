@@ -9,6 +9,11 @@ import {
   ExperienceCard,
   type FieldDraft,
 } from "@/components/bank/experience-card";
+import {
+  ReviewQueue,
+  type ReviewActions,
+} from "@/components/bank/review-queue";
+import { buildReviewQueue } from "@/lib/bank/review-queue";
 import type { Bank, BankBullet, BankExperience } from "@/lib/queries/bank";
 import { EXPERIENCE_KINDS } from "@/lib/structure/schema";
 
@@ -49,6 +54,7 @@ export function BankView({ initialBank }: { initialBank: Bank }) {
     EXPERIENCE_KINDS.flatMap((kind) => initialBank[kind]),
   );
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
+  const [isReviewing, setIsReviewing] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [duplicate, setDuplicate] = useState<BankBullet | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -121,6 +127,68 @@ export function BankView({ initialBank }: { initialBank: Bank }) {
     [experiences],
   );
 
+  /** Everything still awaiting a decision, one item at a time. */
+  const queue = useMemo(() => buildReviewQueue(experiences), [experiences]);
+
+  const reviewActions: ReviewActions = {
+    approveExperience: async (id) => {
+      const updated = await send<BankExperience>(
+        `/api/experiences/${id}`,
+        "PATCH",
+        // Explicit: an empty body is a no-op by convention, so approving has
+        // to say what it is approving.
+        { needsReview: false },
+      );
+      replaceExperience(updated);
+    },
+    saveExperience: async (id, fields) => {
+      const updated = await send<BankExperience>(
+        `/api/experiences/${id}`,
+        "PATCH",
+        fields,
+      );
+      replaceExperience(updated);
+    },
+    approveBullet: async (id) => {
+      const updated = await send<BankBullet>(`/api/bullets/${id}`, "PATCH", {
+        needsReview: false,
+      });
+      patchBullets(updated.experienceId, (bullets) =>
+        bullets.map((item) => (item.id === updated.id ? updated : item)),
+      );
+    },
+    saveBullet: async (id, text) => {
+      const updated = await send<BankBullet>(`/api/bullets/${id}`, "PATCH", {
+        text,
+      });
+      patchBullets(updated.experienceId, (bullets) =>
+        bullets.map((item) => (item.id === updated.id ? updated : item)),
+      );
+    },
+    resolveDuplicate: async (id, action) => {
+      const result = await send<BankBullet & DeleteResult & { deleted?: boolean }>(
+        `/api/bullets/${id}/dedupe`,
+        "POST",
+        { action },
+      );
+
+      if (action === "delete") {
+        setExperiences((prev) =>
+          prev.map((experience) => ({
+            ...experience,
+            bullets: experience.bullets.filter((item) => item.id !== id),
+          })),
+        );
+      } else {
+        patchBullets(result.experienceId, (bullets) =>
+          bullets.map((item) => (item.id === result.id ? result : item)),
+        );
+      }
+
+      clearDuplicateMarkers(result.clearedDuplicateIds ?? []);
+    },
+  };
+
   async function confirmDelete() {
     if (!pendingDelete) return;
     setIsDeleting(true);
@@ -170,6 +238,26 @@ export function BankView({ initialBank }: { initialBank: Bank }) {
     );
   }
 
+  if (isReviewing) {
+    return (
+      <div className="space-y-4">
+        {error && (
+          <p
+            role="alert"
+            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+          >
+            {error}
+          </p>
+        )}
+        <ReviewQueue
+          queue={queue}
+          actions={reviewActions}
+          onExit={() => setIsReviewing(false)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -183,13 +271,28 @@ export function BankView({ initialBank }: { initialBank: Bank }) {
           <span className="text-slate-500">({reviewCount})</span>
         </label>
 
-        <button
-          type="button"
-          onClick={() => setShowAdd((open) => !open)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-slate-100"
-        >
-          {showAdd ? "Close" : "Add experience"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsReviewing(true)}
+            className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-slate-700"
+          >
+            Review
+            {queue.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-white/20 px-1.5 py-0.5 text-xs">
+                {queue.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowAdd((open) => !open)}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-slate-100"
+          >
+            {showAdd ? "Close" : "Add experience"}
+          </button>
+        </div>
       </div>
 
       {showAdd && (
