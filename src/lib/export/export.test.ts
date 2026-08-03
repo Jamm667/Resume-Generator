@@ -1,13 +1,22 @@
+import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 
 import {
-  buildCoverLetterMarkdown,
-  buildResumeMarkdown,
+  buildLetterDocument,
+  buildResumeDocument,
   exportFilename,
+  resumeBullets,
   slugify,
   type ExportExperience,
   type ExportProfile,
-} from "@/lib/export/markdown";
+} from "@/lib/export/document-model";
+import {
+  renderLetterPdf,
+  renderResumePdf,
+  sanitize,
+  UnsupportedCharacterError,
+  wrapText,
+} from "@/lib/export/pdf";
 
 const profile: ExportProfile = {
   fullName: "Dana Whitfield",
@@ -59,7 +68,7 @@ function experience(
     originalDateText: "2020 – 2022",
     tailoredDateText: null,
     userDateText: null,
-    organization: "Acme Payments",
+    organization: "Acme",
     headerTailorStatus: "NONE",
     sourceExperience: { kind: "JOB" },
     children,
@@ -68,289 +77,302 @@ function experience(
 }
 
 // ---------------------------------------------------------------------------
-// Which text ends up in the file — the part that matters most
+// The shared document model — every content rule lives here
 // ---------------------------------------------------------------------------
 
-describe("buildResumeMarkdown — effective text", () => {
-  it("exports an accepted rewrite", () => {
-    const md = buildResumeMarkdown(profile, [
-      experience({}, [
-        bullet({
-          originalText: "Ran the pipeline",
-          tailoredText: "Owned payments reconciliation",
-          tailorStatus: "ACCEPTED",
-        }),
-      ]),
-    ]);
+describe("buildResumeDocument", () => {
+  it("puts the contact block together, skipping what is missing", () => {
+    const full = buildResumeDocument(profile, []);
+    expect(full.name).toBe("Dana Whitfield");
+    expect(full.contact).toBe(
+      "dana@example.com · +1 555 0142 · Toronto, ON · LinkedIn: https://linkedin.com/in/dana",
+    );
 
-    expect(md).toContain("- Owned payments reconciliation");
-    expect(md).not.toContain("Ran the pipeline");
-  });
-
-  it("exports the source text for a rejected rewrite", () => {
-    const md = buildResumeMarkdown(profile, [
-      experience({}, [
-        bullet({
-          originalText: "Ran the pipeline",
-          tailoredText: "A rewrite the user said no to",
-          tailorStatus: "REJECTED",
-        }),
-      ]),
-    ]);
-
-    expect(md).toContain("- Ran the pipeline");
-    expect(md).not.toContain("said no to");
-  });
-
-  it("never exports a blocked rewrite", () => {
-    const md = buildResumeMarkdown(profile, [
-      experience({}, [
-        bullet({
-          originalText: "Led a team",
-          tailoredText: "Led a team of 12",
-          tailorStatus: "BLOCKED",
-        }),
-      ]),
-    ]);
-
-    expect(md).toContain("- Led a team\n");
-    expect(md).not.toContain("of 12");
-  });
-
-  it("prefers the user's own edit over the original when nothing is accepted", () => {
-    const md = buildResumeMarkdown(profile, [
-      experience({}, [
-        bullet({ originalText: "Original", userText: "My own wording" }),
-      ]),
-    ]);
-
-    expect(md).toContain("- My own wording");
-    expect(md).not.toContain("- Original");
-  });
-
-  it("exports an accepted title and date but never rewrites the company", () => {
-    const md = buildResumeMarkdown(profile, [
-      experience(
-        {
-          originalTitle: "UX Designer",
-          tailoredTitle: "Project Coordinator",
-          originalDateText: "Jan 2019 – Mar 2021",
-          tailoredDateText: "2019 – 2021",
-          headerTailorStatus: "ACCEPTED",
-        },
-        [bullet()],
-      ),
-    ]);
-
-    expect(md).toContain("### Project Coordinator — Acme Payments");
-    expect(md).toContain("2019 – 2021");
-    expect(md).not.toContain("UX Designer");
-  });
-
-  it("keeps the original header when the rewrite was rejected", () => {
-    const md = buildResumeMarkdown(profile, [
-      experience(
-        {
-          originalTitle: "UX Designer",
-          tailoredTitle: "Project Coordinator",
-          headerTailorStatus: "REJECTED",
-        },
-        [bullet()],
-      ),
-    ]);
-
-    expect(md).toContain("### UX Designer — Acme Payments");
-    expect(md).not.toContain("Project Coordinator");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Document shape
-// ---------------------------------------------------------------------------
-
-describe("buildResumeMarkdown — structure", () => {
-  it("orders sections Experience, Projects, Education", () => {
-    const md = buildResumeMarkdown(profile, [
-      experience(
-        { id: "e3", sortOrder: 2, sourceExperience: { kind: "EDUCATION" } },
-        [bullet({ id: "b3", parentDraftItemId: "e3" })],
-      ),
-      experience(
-        { id: "e2", sortOrder: 1, sourceExperience: { kind: "PROJECT" } },
-        [bullet({ id: "b2", parentDraftItemId: "e2" })],
-      ),
-      experience({ id: "e1", sortOrder: 0 }, [bullet()]),
-    ]);
-
-    expect(md.indexOf("## Experience")).toBeLessThan(md.indexOf("## Projects"));
-    expect(md.indexOf("## Projects")).toBeLessThan(md.indexOf("## Education"));
-  });
-
-  it("omits a section with no items rather than leaving a bare heading", () => {
-    const md = buildResumeMarkdown(profile, [experience({}, [bullet()])]);
-
-    expect(md).toContain("## Experience");
-    expect(md).not.toContain("## Projects");
-    expect(md).not.toContain("## Education");
-  });
-
-  it("keeps experiences and bullets in draft order", () => {
-    const md = buildResumeMarkdown(profile, [
-      experience({ id: "second", sortOrder: 1, originalTitle: "Second Job" }, [
-        bullet({ id: "s1", parentDraftItemId: "second", originalText: "S1" }),
-      ]),
-      experience({ id: "first", sortOrder: 0, originalTitle: "First Job" }, [
-        bullet({ id: "f2", parentDraftItemId: "first", sortOrder: 1, originalText: "F2" }),
-        bullet({ id: "f1", parentDraftItemId: "first", sortOrder: 0, originalText: "F1" }),
-      ]),
-    ]);
-
-    expect(md.indexOf("First Job")).toBeLessThan(md.indexOf("Second Job"));
-    expect(md.indexOf("- F1")).toBeLessThan(md.indexOf("- F2"));
-  });
-
-  it("puts an item whose bank entry was deleted into Experience", () => {
-    const md = buildResumeMarkdown(profile, [
-      experience({ sourceExperience: null }, [bullet()]),
-    ]);
-
-    expect(md).toContain("## Experience");
-  });
-
-  it("renders a contact line with no stray separators when fields are missing", () => {
-    const md = buildResumeMarkdown(
+    const sparse = buildResumeDocument(
       { ...profile, phone: null, location: null, links: [] },
-      [experience({}, [bullet()])],
+      [],
     );
-
-    expect(md).toContain("# Dana Whitfield");
-    expect(md).toContain("dana@example.com");
-    expect(md).not.toMatch(/·\s*·/);
-    expect(md).not.toMatch(/·\s*$/m);
+    // No stray separator where the phone would have been.
+    expect(sparse.contact).toBe("dana@example.com");
   });
 
-  it("omits the name heading entirely when there is no name", () => {
-    const md = buildResumeMarkdown({ ...profile, fullName: null }, [
-      experience({}, [bullet()]),
+  it("has no name when the profile has none", () => {
+    expect(buildResumeDocument({ ...profile, fullName: "  " }, []).name).toBeNull();
+  });
+
+  it("orders sections Experience, Projects, Education and omits empty ones", () => {
+    const document = buildResumeDocument(profile, [
+      experience({
+        id: "school",
+        sortOrder: 2,
+        originalTitle: "BSc",
+        sourceExperience: { kind: "EDUCATION" },
+      }),
+      experience({
+        id: "job",
+        sortOrder: 0,
+        originalTitle: "Engineer",
+        sourceExperience: { kind: "JOB" },
+      }),
     ]);
 
-    expect(md).not.toMatch(/^#\s*$/m);
-    expect(md.startsWith("dana@example.com")).toBe(true);
+    expect(document.sections.map((section) => section.heading)).toEqual([
+      "Experience",
+      "Education",
+    ]);
   });
 
-  it("drops the date line when there is no date", () => {
-    const md = buildResumeMarkdown(profile, [
-      experience({ originalDateText: null }, [bullet()]),
+  it("keeps an item whose bank entry was deleted, under Experience", () => {
+    const document = buildResumeDocument(profile, [
+      experience({ sourceExperience: null }),
+    ]);
+    expect(document.sections[0].heading).toBe("Experience");
+  });
+
+  it("joins the title and organization, and drops the dash without one", () => {
+    expect(
+      buildResumeDocument(profile, [experience()]).sections[0].experiences[0]
+        .heading,
+    ).toBe("Engineer — Acme");
+
+    expect(
+      buildResumeDocument(profile, [experience({ organization: null })])
+        .sections[0].experiences[0].heading,
+    ).toBe("Engineer");
+  });
+
+  it("uses an accepted tailored title and date, but never a tailored organization", () => {
+    const document = buildResumeDocument(profile, [
+      experience({
+        tailoredTitle: "Project Coordinator",
+        tailoredDateText: "2019 – 2021",
+        headerTailorStatus: "ACCEPTED",
+      }),
     ]);
 
-    expect(md).toContain("### Engineer — Acme Payments");
-    expect(md).not.toMatch(/\n{3,}/);
+    const first = document.sections[0].experiences[0];
+    expect(first.heading).toBe("Project Coordinator — Acme");
+    expect(first.dateText).toBe("2019 – 2021");
   });
 
-  it("never emits a run of more than one blank line", () => {
-    const md = buildResumeMarkdown(profile, [
-      experience({ originalDateText: null }, []),
-      experience({ id: "e2", sortOrder: 1 }, [bullet({ id: "b2", parentDraftItemId: "e2" })]),
+  it("ignores a proposed header rewrite that was not accepted", () => {
+    const document = buildResumeDocument(profile, [
+      experience({
+        tailoredTitle: "Never Accepted",
+        headerTailorStatus: "PROPOSED",
+      }),
     ]);
-
-    expect(md).not.toMatch(/\n{3,}/);
+    expect(document.sections[0].experiences[0].heading).toBe("Engineer — Acme");
   });
 
-  it("matches a full document", () => {
-    const md = buildResumeMarkdown(profile, [
+  it("exports an accepted bullet rewrite", () => {
+    const document = buildResumeDocument(profile, [
       experience({}, [
-        bullet({ id: "b1", originalText: "Ran Postgres at scale" }),
-        bullet({ id: "b2", sortOrder: 1, originalText: "Mentored four engineers" }),
+        bullet({ tailoredText: "Tailored wording", tailorStatus: "ACCEPTED" }),
       ]),
     ]);
+    expect(resumeBullets(document)).toEqual(["Tailored wording"]);
+  });
 
-    expect(md).toBe(
-      [
-        "# Dana Whitfield",
-        "",
-        "dana@example.com · +1 555 0142 · Toronto, ON · LinkedIn: https://linkedin.com/in/dana",
-        "",
-        "## Experience",
-        "",
-        "### Engineer — Acme Payments",
-        "",
-        "2020 – 2022",
-        "",
-        "- Ran Postgres at scale",
-        "- Mentored four engineers",
-        "",
-      ].join("\n"),
-    );
+  it("exports the source text for a rejected or blocked rewrite", () => {
+    for (const status of ["REJECTED", "BLOCKED"]) {
+      const document = buildResumeDocument(profile, [
+        experience({}, [
+          bullet({
+            tailoredText: "MUST NOT APPEAR",
+            tailorStatus: status,
+            userText: "What the user wrote",
+          }),
+        ]),
+      ]);
+      expect(resumeBullets(document)).toEqual(["What the user wrote"]);
+    }
+  });
+
+  it("prefers the user's edit over the original when nothing is accepted", () => {
+    const document = buildResumeDocument(profile, [
+      experience({}, [bullet({ userText: "Hand edited" })]),
+    ]);
+    expect(resumeBullets(document)).toEqual(["Hand edited"]);
+  });
+
+  it("keeps bullets in sortOrder", () => {
+    const document = buildResumeDocument(profile, [
+      experience({}, [
+        bullet({ id: "b2", sortOrder: 1, originalText: "Second" }),
+        bullet({ id: "b1", sortOrder: 0, originalText: "First" }),
+      ]),
+    ]);
+    expect(resumeBullets(document)).toEqual(["First", "Second"]);
   });
 });
 
-// ---------------------------------------------------------------------------
-// Cover letter
-// ---------------------------------------------------------------------------
-
-describe("buildCoverLetterMarkdown", () => {
-  it("carries the header, date, addressee, and body", () => {
-    const md = buildCoverLetterMarkdown({
+describe("buildLetterDocument", () => {
+  it("splits the body into paragraphs and names the addressee", () => {
+    const document = buildLetterDocument({
       profile,
-      companyName: "Northwind Logistics",
-      roleTitle: "Project Coordinator",
+      companyName: "Northwind",
+      roleTitle: "Coordinator",
       date: "August 2, 2026",
-      body: "Dear Hiring Team,\n\nA letter.",
+      body: "First para.\n\nSecond para.\n\n\nThird para.",
     });
 
-    expect(md).toContain("# Dana Whitfield");
-    expect(md).toContain("August 2, 2026");
-    expect(md).toContain("Northwind Logistics — Project Coordinator");
-    expect(md).toContain("Dear Hiring Team,");
-    expect(md).not.toMatch(/\n{3,}/);
+    expect(document.addressee).toBe("Northwind — Coordinator");
+    expect(document.paragraphs).toEqual([
+      "First para.",
+      "Second para.",
+      "Third para.",
+    ]);
   });
 
-  it("leaves out an addressee it does not have", () => {
-    const md = buildCoverLetterMarkdown({
+  it("leaves the addressee empty when the posting named nobody", () => {
+    const document = buildLetterDocument({
       profile,
       companyName: null,
       roleTitle: null,
       date: "August 2, 2026",
       body: "A letter.",
     });
+    expect(document.addressee).toBe("");
+  });
+});
 
-    expect(md).not.toContain("—");
-    expect(md).not.toMatch(/\n{3,}/);
+describe("slugify and exportFilename", () => {
+  it("handles spaces, punctuation, and accents", () => {
+    expect(slugify("Dana Whitfield")).toBe("dana-whitfield");
+    expect(slugify("Northwind Logistics — Project Coordinator!")).toBe(
+      "northwind-logistics-project-coordinator",
+    );
+    expect(slugify("Zoë Ångström")).toBe("zoe-angstrom");
+  });
+
+  it("falls back rather than producing an empty name", () => {
+    expect(slugify("！！！")).toBe("application");
+  });
+
+  it("names the files predictably", () => {
+    expect(exportFilename("Acme — Engineer", "resume")).toBe(
+      "acme-engineer-resume.pdf",
+    );
+    expect(exportFilename("Acme — Engineer", "cover-letter")).toBe(
+      "acme-engineer-cover-letter.pdf",
+    );
   });
 });
 
 // ---------------------------------------------------------------------------
-// Filenames
+// PDF rendering
 // ---------------------------------------------------------------------------
 
-describe("slugify", () => {
-  it("lowercases and hyphenates spaces", () => {
-    expect(slugify("Dana Whitfield")).toBe("dana-whitfield");
+describe("sanitize", () => {
+  it("maps typography the standard fonts cannot encode", () => {
+    expect(sanitize("“quoted” and ‘single’")).toBe('"quoted" and \'single\'');
+    expect(sanitize("wait…")).toBe("wait...");
+    expect(sanitize("2020 – 2022")).toBe("2020 - 2022");
   });
 
-  it("collapses punctuation rather than leaving it in a filename", () => {
-    expect(slugify("Northwind Logistics — Project Coordinator")).toBe(
-      "northwind-logistics-project-coordinator",
+  it("keeps the characters the fonts do have", () => {
+    expect(sanitize("Engineer — Acme")).toContain("—");
+    expect(sanitize("café · naïve")).toBe("café · naïve");
+  });
+
+  it("refuses a character it cannot render rather than dropping it", () => {
+    expect(() => sanitize("周雨辰")).toThrow(UnsupportedCharacterError);
+  });
+});
+
+describe("wrapText", () => {
+  it("wraps at the column and never exceeds it", async () => {
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont("Helvetica");
+    const lines = wrapText(
+      "the quick brown fox jumps over the lazy dog ".repeat(6),
+      font,
+      10,
+      200,
     );
-    expect(slugify("O'Brien & Sons, Inc.")).toBe("o-brien-sons-inc");
+
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(font.widthOfTextAtSize(line, 10)).toBeLessThanOrEqual(200);
+    }
   });
 
-  it("folds accents to their base letters", () => {
-    expect(slugify("Zoë Ångström")).toBe("zoe-angstrom");
-    expect(slugify("José García")).toBe("jose-garcia");
-  });
+  it("breaks a single token too wide to fit", async () => {
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont("Helvetica");
+    const lines = wrapText(`https://example.com/${"x".repeat(200)}`, font, 10, 150);
 
-  it("falls back rather than producing an empty name", () => {
-    expect(slugify("!!!")).toBe("application");
-    expect(slugify("")).toBe("application");
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(font.widthOfTextAtSize(line, 10)).toBeLessThanOrEqual(150);
+    }
   });
+});
 
-  it("builds both filenames", () => {
-    expect(exportFilename("Northwind — Coordinator", "resume")).toBe(
-      "northwind-coordinator-resume.md",
+describe("renderResumePdf", () => {
+  const bank = (count: number) =>
+    experience(
+      {},
+      Array.from({ length: count }, (_, index) =>
+        bullet({
+          id: `b${index}`,
+          sortOrder: index,
+          originalText: `Bullet number ${index} describing a piece of work.`,
+        }),
+      ),
     );
-    expect(exportFilename("Northwind — Coordinator", "cover-letter")).toBe(
-      "northwind-coordinator-cover-letter.md",
+
+  it("produces a valid single-page PDF for a small draft", async () => {
+    const bytes = await renderResumePdf(
+      buildResumeDocument(profile, [bank(3)]),
     );
+
+    expect(bytes.byteLength).toBeGreaterThan(0);
+    // Every PDF starts with this signature; a truncated file would not.
+    expect(Buffer.from(bytes.slice(0, 5)).toString()).toBe("%PDF-");
+
+    const parsed = await PDFDocument.load(bytes);
+    expect(parsed.getPageCount()).toBe(1);
+  });
+
+  it("flows a 40-bullet draft onto more than one page", async () => {
+    const bytes = await renderResumePdf(
+      buildResumeDocument(profile, [bank(40)]),
+    );
+    const parsed = await PDFDocument.load(bytes);
+    expect(parsed.getPageCount()).toBeGreaterThan(1);
+  });
+
+  it("renders an empty draft without crashing", async () => {
+    const bytes = await renderResumePdf(buildResumeDocument(profile, []));
+    const parsed = await PDFDocument.load(bytes);
+    expect(parsed.getPageCount()).toBe(1);
+  });
+
+  it("fails loudly on a character it cannot render", async () => {
+    await expect(
+      renderResumePdf(
+        buildResumeDocument({ ...profile, fullName: "周雨辰" }, [bank(1)]),
+      ),
+    ).rejects.toThrow(UnsupportedCharacterError);
+  });
+});
+
+describe("renderLetterPdf", () => {
+  it("produces a valid PDF", async () => {
+    const bytes = await renderLetterPdf(
+      buildLetterDocument({
+        profile,
+        companyName: "Northwind",
+        roleTitle: "Coordinator",
+        date: "August 2, 2026",
+        body: "Dear Hiring Team,\n\nA letter body.\n\nSincerely,\nDana",
+      }),
+    );
+
+    expect(Buffer.from(bytes.slice(0, 5)).toString()).toBe("%PDF-");
+    const parsed = await PDFDocument.load(bytes);
+    expect(parsed.getPageCount()).toBe(1);
   });
 });
